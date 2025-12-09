@@ -37,3 +37,6 @@ build/
 # H2 Database files
 data/
 *.db
+
+# Claude Code documentation (local only)
+CLAUDE.md
