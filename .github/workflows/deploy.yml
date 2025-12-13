@@ -77,6 +77,9 @@ jobs:
             set -e
             cd /opt/inboop
 
+            # Pull latest code
+            git pull origin master
+
             # Login to ECR
             aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
 
