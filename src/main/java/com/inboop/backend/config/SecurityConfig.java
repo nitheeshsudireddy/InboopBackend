@@ -56,7 +56,7 @@ public class SecurityConfig {
                         .requestMatchers("/", "/home", "/register", "/register-submit").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/v1/webhooks/**").permitAll()
-                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
+                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/google").permitAll()
                         // Protected endpoints
                         .requestMatchers("/api/v1/**").authenticated()
                         .requestMatchers("/dashboard").authenticated()

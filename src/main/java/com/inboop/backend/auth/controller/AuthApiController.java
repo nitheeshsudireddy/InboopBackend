@@ -1,6 +1,7 @@
 package com.inboop.backend.auth.controller;
 
 import com.inboop.backend.auth.dto.AuthResponse;
+import com.inboop.backend.auth.dto.GoogleAuthRequest;
 import com.inboop.backend.auth.dto.LoginRequest;
 import com.inboop.backend.auth.dto.RefreshTokenRequest;
 import com.inboop.backend.auth.dto.RegisterRequest;
@@ -47,6 +48,16 @@ public class AuthApiController {
     public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         try {
             AuthResponse response = authService.refreshToken(request.getRefreshToken());
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<ApiResponse<AuthResponse>> googleAuth(@Valid @RequestBody GoogleAuthRequest request) {
+        try {
+            AuthResponse response = authService.authenticateWithGoogle(request.getCredential());
             return ResponseEntity.ok(ApiResponse.success(response));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));

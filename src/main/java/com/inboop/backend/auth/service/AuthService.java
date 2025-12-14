@@ -7,11 +7,16 @@ import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.auth.repository.UserRepository;
 import com.inboop.backend.auth.security.JwtUtil;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class AuthService {
@@ -95,5 +100,57 @@ public class AuthService {
     public User findByEmail(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+
+    @Transactional
+    public AuthResponse authenticateWithGoogle(String accessToken) {
+        // Fetch user info from Google using the access token
+        RestTemplate restTemplate = new RestTemplate();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<Map> response;
+        try {
+            response = restTemplate.exchange(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    HttpMethod.GET,
+                    entity,
+                    Map.class
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to verify Google token: " + e.getMessage());
+        }
+
+        Map<String, Object> userInfo = response.getBody();
+        if (userInfo == null || !userInfo.containsKey("email")) {
+            throw new RuntimeException("Failed to get user info from Google");
+        }
+
+        String email = (String) userInfo.get("email");
+        String name = (String) userInfo.get("name");
+        String googleId = (String) userInfo.get("id");
+
+        // Find existing user or create new one
+        User user = userRepository.findByEmail(email)
+                .orElseGet(() -> {
+                    User newUser = new User();
+                    newUser.setEmail(email);
+                    newUser.setName(name != null ? name : email.split("@")[0]);
+                    newUser.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
+                    newUser.setRole("USER");
+                    newUser.setOauthProvider("GOOGLE");
+                    newUser.setOauthId(googleId);
+                    return userRepository.save(newUser);
+                });
+
+        // Update OAuth info if user exists but wasn't linked to Google
+        if (user.getOauthProvider() == null || user.getOauthProvider().equals("LOCAL")) {
+            user.setOauthProvider("GOOGLE");
+            user.setOauthId(googleId);
+            userRepository.save(user);
+        }
+
+        return generateAuthResponse(user);
     }
 }
