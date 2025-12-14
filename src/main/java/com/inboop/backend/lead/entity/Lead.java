@@ -2,13 +2,13 @@ package com.inboop.backend.lead.entity;
 
 import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.business.entity.Business;
+import com.inboop.backend.lead.enums.ChannelType;
 import com.inboop.backend.lead.enums.LeadStatus;
 import com.inboop.backend.lead.enums.LeadType;
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 @Entity
@@ -32,6 +32,13 @@ public class Lead {
     @Column(name = "customer_name")
     private String customerName;
 
+    @Column(name = "profile_picture")
+    private String profilePicture;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private ChannelType channel = ChannelType.INSTAGRAM;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private LeadStatus status = LeadStatus.NEW;
@@ -52,6 +59,15 @@ public class Lead {
     @Column(name = "detected_language")
     private String detectedLanguage;
 
+    @Column(name = "value", precision = 10, scale = 2)
+    private BigDecimal value;
+
+    @Column(name = "notes", columnDefinition = "TEXT")
+    private String notes;
+
+    @Column(name = "last_message_snippet")
+    private String lastMessageSnippet;
+
     @Column(name = "last_message_at")
     private LocalDateTime lastMessageAt;
 
@@ -61,8 +77,10 @@ public class Lead {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "lead", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Conversation> conversations = new ArrayList<>();
+    // A lead belongs to one conversation (same customer can have multiple leads over time from same conversation)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "conversation_id")
+    private Conversation conversation;
 
     @PrePersist
     protected void onCreate() {
@@ -156,6 +174,46 @@ public class Lead {
         this.detectedLanguage = detectedLanguage;
     }
 
+    public String getProfilePicture() {
+        return profilePicture;
+    }
+
+    public void setProfilePicture(String profilePicture) {
+        this.profilePicture = profilePicture;
+    }
+
+    public ChannelType getChannel() {
+        return channel;
+    }
+
+    public void setChannel(ChannelType channel) {
+        this.channel = channel;
+    }
+
+    public BigDecimal getValue() {
+        return value;
+    }
+
+    public void setValue(BigDecimal value) {
+        this.value = value;
+    }
+
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
+    }
+
+    public String getLastMessageSnippet() {
+        return lastMessageSnippet;
+    }
+
+    public void setLastMessageSnippet(String lastMessageSnippet) {
+        this.lastMessageSnippet = lastMessageSnippet;
+    }
+
     public LocalDateTime getLastMessageAt() {
         return lastMessageAt;
     }
@@ -180,11 +238,11 @@ public class Lead {
         this.updatedAt = updatedAt;
     }
 
-    public List<Conversation> getConversations() {
-        return conversations;
+    public Conversation getConversation() {
+        return conversation;
     }
 
-    public void setConversations(List<Conversation> conversations) {
-        this.conversations = conversations;
+    public void setConversation(Conversation conversation) {
+        this.conversation = conversation;
     }
 }

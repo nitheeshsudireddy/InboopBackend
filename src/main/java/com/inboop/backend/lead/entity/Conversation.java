@@ -1,5 +1,7 @@
 package com.inboop.backend.lead.entity;
 
+import com.inboop.backend.business.entity.Business;
+import com.inboop.backend.lead.enums.ChannelType;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -13,12 +15,36 @@ public class Conversation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Conversation belongs to a business (for multi-tenant support)
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "lead_id", nullable = false)
-    private Lead lead;
+    @JoinColumn(name = "business_id", nullable = false)
+    private Business business;
 
     @Column(name = "instagram_conversation_id", unique = true)
     private String instagramConversationId;
+
+    // One conversation can have multiple leads over time
+    @OneToMany(mappedBy = "conversation", cascade = CascadeType.ALL)
+    private List<Lead> leads = new ArrayList<>();
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private ChannelType channel = ChannelType.INSTAGRAM;
+
+    @Column(name = "customer_handle")
+    private String customerHandle;
+
+    @Column(name = "customer_name")
+    private String customerName;
+
+    @Column(name = "profile_picture")
+    private String profilePicture;
+
+    @Column(name = "last_message")
+    private String lastMessage;
+
+    @Column(name = "unread_count")
+    private Integer unreadCount = 0;
 
     @Column(name = "is_active")
     private Boolean isActive = true;
@@ -47,12 +73,20 @@ public class Conversation {
         this.id = id;
     }
 
-    public Lead getLead() {
-        return lead;
+    public Business getBusiness() {
+        return business;
     }
 
-    public void setLead(Lead lead) {
-        this.lead = lead;
+    public void setBusiness(Business business) {
+        this.business = business;
+    }
+
+    public List<Lead> getLeads() {
+        return leads;
+    }
+
+    public void setLeads(List<Lead> leads) {
+        this.leads = leads;
     }
 
     public String getInstagramConversationId() {
@@ -61,6 +95,54 @@ public class Conversation {
 
     public void setInstagramConversationId(String instagramConversationId) {
         this.instagramConversationId = instagramConversationId;
+    }
+
+    public ChannelType getChannel() {
+        return channel;
+    }
+
+    public void setChannel(ChannelType channel) {
+        this.channel = channel;
+    }
+
+    public String getCustomerHandle() {
+        return customerHandle;
+    }
+
+    public void setCustomerHandle(String customerHandle) {
+        this.customerHandle = customerHandle;
+    }
+
+    public String getCustomerName() {
+        return customerName;
+    }
+
+    public void setCustomerName(String customerName) {
+        this.customerName = customerName;
+    }
+
+    public String getProfilePicture() {
+        return profilePicture;
+    }
+
+    public void setProfilePicture(String profilePicture) {
+        this.profilePicture = profilePicture;
+    }
+
+    public String getLastMessage() {
+        return lastMessage;
+    }
+
+    public void setLastMessage(String lastMessage) {
+        this.lastMessage = lastMessage;
+    }
+
+    public Integer getUnreadCount() {
+        return unreadCount;
+    }
+
+    public void setUnreadCount(Integer unreadCount) {
+        this.unreadCount = unreadCount;
     }
 
     public Boolean getIsActive() {

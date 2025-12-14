@@ -1,0 +1,603 @@
+databaseChangeLog:
+  # ============================================
+  # 001 - Create Users Table
+  # ============================================
+  - changeSet:
+      id: 001-create-users-table
+      author: inboop
+      changes:
+        - createTable:
+            tableName: users
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: email
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: password
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: role
+                  type: VARCHAR(50)
+                  defaultValue: 'USER'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: oauth_provider
+                  type: VARCHAR(50)
+              - column:
+                  name: oauth_id
+                  type: VARCHAR(255)
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            indexName: idx_users_email
+            tableName: users
+            columns:
+              - column:
+                  name: email
+
+  # ============================================
+  # 002 - Create Businesses Table
+  # ============================================
+  - changeSet:
+      id: 002-create-businesses-table
+      author: inboop
+      changes:
+        - createTable:
+            tableName: businesses
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: instagram_business_id
+                  type: VARCHAR(255)
+                  constraints:
+                    unique: true
+              - column:
+                  name: instagram_page_id
+                  type: VARCHAR(255)
+              - column:
+                  name: instagram_username
+                  type: VARCHAR(255)
+              - column:
+                  name: access_token
+                  type: VARCHAR(1000)
+              - column:
+                  name: token_expires_at
+                  type: TIMESTAMP
+              - column:
+                  name: owner_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_businesses_owner
+                    references: users(id)
+              - column:
+                  name: webhook_verified
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+              - column:
+                  name: is_active
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            indexName: idx_businesses_owner_id
+            tableName: businesses
+            columns:
+              - column:
+                  name: owner_id
+
+  # ============================================
+  # 003 - Create Leads Table
+  # ============================================
+  - changeSet:
+      id: 003-create-leads-table
+      author: inboop
+      changes:
+        - createTable:
+            tableName: leads
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: business_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_leads_business
+                    references: businesses(id)
+              - column:
+                  name: instagram_user_id
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: instagram_username
+                  type: VARCHAR(255)
+              - column:
+                  name: customer_name
+                  type: VARCHAR(255)
+              - column:
+                  name: status
+                  type: VARCHAR(50)
+                  defaultValue: 'NEW'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: type
+                  type: VARCHAR(50)
+                  defaultValue: 'OTHER'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: assigned_to
+                  type: BIGINT
+                  constraints:
+                    foreignKeyName: fk_leads_assigned_to
+                    references: users(id)
+              - column:
+                  name: detected_language
+                  type: VARCHAR(10)
+              - column:
+                  name: last_message_at
+                  type: TIMESTAMP
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            indexName: idx_leads_business_id
+            tableName: leads
+            columns:
+              - column:
+                  name: business_id
+        - createIndex:
+            indexName: idx_leads_status
+            tableName: leads
+            columns:
+              - column:
+                  name: status
+
+  # ============================================
+  # 004 - Create Lead Labels Table
+  # ============================================
+  - changeSet:
+      id: 004-create-lead-labels-table
+      author: inboop
+      changes:
+        - createTable:
+            tableName: lead_labels
+            columns:
+              - column:
+                  name: lead_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_lead_labels_lead
+                    references: leads(id)
+              - column:
+                  name: label
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+        - addPrimaryKey:
+            tableName: lead_labels
+            columnNames: lead_id, label
+            constraintName: pk_lead_labels
+
+  # ============================================
+  # 005 - Create Conversations Table
+  # ============================================
+  - changeSet:
+      id: 005-create-conversations-table
+      author: inboop
+      changes:
+        - createTable:
+            tableName: conversations
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: lead_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_conversations_lead
+                    references: leads(id)
+              - column:
+                  name: instagram_conversation_id
+                  type: VARCHAR(255)
+                  constraints:
+                    unique: true
+              - column:
+                  name: is_active
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+              - column:
+                  name: started_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: last_message_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            indexName: idx_conversations_lead_id
+            tableName: conversations
+            columns:
+              - column:
+                  name: lead_id
+
+  # ============================================
+  # 006 - Create Messages Table
+  # ============================================
+  - changeSet:
+      id: 006-create-messages-table
+      author: inboop
+      changes:
+        - createTable:
+            tableName: messages
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: conversation_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_messages_conversation
+                    references: conversations(id)
+              - column:
+                  name: instagram_message_id
+                  type: VARCHAR(255)
+                  constraints:
+                    unique: true
+              - column:
+                  name: sender_id
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: is_from_customer
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+              - column:
+                  name: original_text
+                  type: TEXT
+              - column:
+                  name: translated_text
+                  type: TEXT
+              - column:
+                  name: detected_language
+                  type: VARCHAR(10)
+              - column:
+                  name: sentiment
+                  type: VARCHAR(50)
+              - column:
+                  name: ai_classification
+                  type: TEXT
+              - column:
+                  name: has_attachment
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+              - column:
+                  name: attachment_url
+                  type: VARCHAR(1000)
+              - column:
+                  name: is_read
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+              - column:
+                  name: sent_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            indexName: idx_messages_conversation_id
+            tableName: messages
+            columns:
+              - column:
+                  name: conversation_id
+        - createIndex:
+            indexName: idx_messages_sent_at
+            tableName: messages
+            columns:
+              - column:
+                  name: sent_at
+
+  # ============================================
+  # 007 - Create Orders Table
+  # ============================================
+  - changeSet:
+      id: 007-create-orders-table
+      author: inboop
+      changes:
+        - createTable:
+            tableName: orders
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: order_number
+                  type: VARCHAR(100)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: business_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_orders_business
+                    references: businesses(id)
+              - column:
+                  name: lead_id
+                  type: BIGINT
+                  constraints:
+                    foreignKeyName: fk_orders_lead
+                    references: leads(id)
+              - column:
+                  name: customer_name
+                  type: VARCHAR(255)
+              - column:
+                  name: customer_phone
+                  type: VARCHAR(50)
+              - column:
+                  name: customer_address
+                  type: TEXT
+              - column:
+                  name: status
+                  type: VARCHAR(50)
+                  defaultValue: 'PENDING'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: total_amount
+                  type: DECIMAL(10, 2)
+              - column:
+                  name: notes
+                  type: TEXT
+              - column:
+                  name: tracking_number
+                  type: VARCHAR(255)
+              - column:
+                  name: order_date
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: shipped_at
+                  type: TIMESTAMP
+              - column:
+                  name: delivered_at
+                  type: TIMESTAMP
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            indexName: idx_orders_business_id
+            tableName: orders
+            columns:
+              - column:
+                  name: business_id
+        - createIndex:
+            indexName: idx_orders_status
+            tableName: orders
+            columns:
+              - column:
+                  name: status
+
+  # ============================================
+  # 008 - Add Missing Columns to Leads and Conversations
+  # ============================================
+  - changeSet:
+      id: 008-add-lead-conversation-columns
+      author: inboop
+      changes:
+        # Add new columns to leads table
+        - addColumn:
+            tableName: leads
+            columns:
+              - column:
+                  name: profile_picture
+                  type: VARCHAR(500)
+              - column:
+                  name: channel
+                  type: VARCHAR(50)
+                  defaultValue: 'INSTAGRAM'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: value
+                  type: DECIMAL(10, 2)
+              - column:
+                  name: notes
+                  type: TEXT
+              - column:
+                  name: last_message_snippet
+                  type: VARCHAR(500)
+        # Add new columns to conversations table
+        - addColumn:
+            tableName: conversations
+            columns:
+              - column:
+                  name: channel
+                  type: VARCHAR(50)
+                  defaultValue: 'INSTAGRAM'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: customer_handle
+                  type: VARCHAR(255)
+              - column:
+                  name: customer_name
+                  type: VARCHAR(255)
+              - column:
+                  name: profile_picture
+                  type: VARCHAR(500)
+              - column:
+                  name: last_message
+                  type: VARCHAR(500)
+              - column:
+                  name: unread_count
+                  type: INTEGER
+                  defaultValueNumeric: 0
+        # Add index on channel for leads
+        - createIndex:
+            indexName: idx_leads_channel
+            tableName: leads
+            columns:
+              - column:
+                  name: channel
+        # Add index on channel for conversations
+        - createIndex:
+            indexName: idx_conversations_channel
+            tableName: conversations
+            columns:
+              - column:
+                  name: channel
+
+  # ============================================
+  # 009 - Change Lead-Conversation Relationship
+  # One Conversation can have many Leads over time
+  # ============================================
+  - changeSet:
+      id: 009-change-lead-conversation-relationship
+      author: inboop
+      changes:
+        # Step 1: Drop the old foreign key from conversations.lead_id
+        - dropForeignKeyConstraint:
+            baseTableName: conversations
+            constraintName: fk_conversations_lead
+
+        # Step 2: Drop the lead_id column from conversations (no longer needed)
+        - dropColumn:
+            tableName: conversations
+            columnName: lead_id
+
+        # Step 3: Add business_id to conversations (for multi-tenant support)
+        - addColumn:
+            tableName: conversations
+            columns:
+              - column:
+                  name: business_id
+                  type: BIGINT
+                  constraints:
+                    nullable: true
+
+        # Step 4: Add conversation_id to leads (the new relationship)
+        - addColumn:
+            tableName: leads
+            columns:
+              - column:
+                  name: conversation_id
+                  type: BIGINT
+                  constraints:
+                    nullable: true
+
+        # Step 5: Add foreign key constraint for leads.conversation_id
+        - addForeignKeyConstraint:
+            baseTableName: leads
+            baseColumnNames: conversation_id
+            constraintName: fk_leads_conversation
+            referencedTableName: conversations
+            referencedColumnNames: id
+
+        # Step 6: Add foreign key constraint for conversations.business_id
+        - addForeignKeyConstraint:
+            baseTableName: conversations
+            baseColumnNames: business_id
+            constraintName: fk_conversations_business
+            referencedTableName: businesses
+            referencedColumnNames: id
+
+        # Step 7: Add index on leads.conversation_id for performance
+        - createIndex:
+            indexName: idx_leads_conversation_id
+            tableName: leads
+            columns:
+              - column:
+                  name: conversation_id
+
+        # Step 8: Add index on conversations.business_id for performance
+        - createIndex:
+            indexName: idx_conversations_business_id
+            tableName: conversations
+            columns:
+              - column:
+                  name: business_id
