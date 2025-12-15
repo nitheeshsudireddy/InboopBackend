@@ -63,6 +63,10 @@ public class SecurityConfig {
                         // 2. Authentication is via HMAC signature verification using app secret
                         // 3. Invalid signatures are rejected in the controller
                         .requestMatchers("/meta/**").permitAll()
+                        // Facebook/Instagram OAuth callback (public - Facebook redirects here)
+                        .requestMatchers("/login/oauth2/code/**").permitAll()
+                        // Instagram OAuth initiation endpoint
+                        .requestMatchers("/api/v1/instagram/oauth/**").permitAll()
                         // Protected endpoints
                         .requestMatchers("/api/v1/**").authenticated()
                         .requestMatchers("/dashboard").authenticated()
