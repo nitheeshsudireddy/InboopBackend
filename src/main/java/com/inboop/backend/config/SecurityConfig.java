@@ -85,9 +85,7 @@ public class SecurityConfig {
                         // GET /oauth2/authorization/facebook - initiates OAuth flow
                         // GET /login/oauth2/code/facebook - callback from Facebook
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
-                        // Legacy endpoint for status check
-                        .requestMatchers("/api/v1/instagram/oauth/status").permitAll()
-                        // Protected endpoints
+                        // Protected endpoints (including /api/v1/integrations/instagram/*)
                         .requestMatchers("/api/v1/**").authenticated()
                         .requestMatchers("/dashboard").authenticated()
                         .anyRequest().authenticated()
