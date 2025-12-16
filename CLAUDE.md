@@ -307,10 +307,23 @@ All entities use `@PrePersist` and `@PreUpdate` for automatic timestamp manageme
 ## Frontend Integration
 
 This backend expects a separate frontend (React/Next.js recommended):
+- **Frontend location**: `/Users/sudireddy/Projects/Inboop/inboop-frontend`
+- **Frontend URL**: http://localhost:3000 (always use port 3000)
 - API endpoint: `http://localhost:8080/api/v1`
 - WebSocket endpoint (future): `ws://localhost:8080/ws`
 - CORS origins configured via `ALLOWED_ORIGINS` env var
 - Default allowed: `http://localhost:3000,http://localhost:3001`
+
+### Running Frontend Locally
+```bash
+cd /Users/sudireddy/Projects/Inboop/inboop-frontend
+npm run dev -- -p 3000
+```
+
+**Important**: Always run the frontend on port 3000. Kill any existing processes on that port before starting:
+```bash
+lsof -ti:3000 | xargs kill -9 2>/dev/null; npm run dev -- -p 3000
+```
 
 ## Known TODOs in Code
 

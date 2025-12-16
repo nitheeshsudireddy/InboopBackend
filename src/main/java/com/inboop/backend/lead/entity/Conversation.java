@@ -23,6 +23,9 @@ public class Conversation {
     @Column(name = "instagram_conversation_id", unique = true)
     private String instagramConversationId;
 
+    @Column(name = "instagram_scoped_user_id")
+    private String instagramScopedUserId;
+
     // One conversation can have multiple leads over time
     @OneToMany(mappedBy = "conversation", cascade = CascadeType.ALL)
     private List<Lead> leads = new ArrayList<>();
@@ -95,6 +98,14 @@ public class Conversation {
 
     public void setInstagramConversationId(String instagramConversationId) {
         this.instagramConversationId = instagramConversationId;
+    }
+
+    public String getInstagramScopedUserId() {
+        return instagramScopedUserId;
+    }
+
+    public void setInstagramScopedUserId(String instagramScopedUserId) {
+        this.instagramScopedUserId = instagramScopedUserId;
     }
 
     public ChannelType getChannel() {

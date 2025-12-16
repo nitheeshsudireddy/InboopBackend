@@ -8,11 +8,18 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface LeadRepository extends JpaRepository<Lead, Long> {
 
     List<Lead> findByBusinessId(Long businessId);
+
+    /**
+     * Find an existing lead for a customer in a business.
+     * Used to find or create leads when processing webhook messages.
+     */
+    Optional<Lead> findByBusinessIdAndInstagramUserId(Long businessId, String instagramUserId);
 
     List<Lead> findByConversationId(Long conversationId);
 

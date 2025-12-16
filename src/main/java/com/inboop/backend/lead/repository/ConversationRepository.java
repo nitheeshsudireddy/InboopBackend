@@ -18,6 +18,12 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
     List<Conversation> findByBusinessId(Long businessId);
 
     /**
+     * Find an existing conversation between a business and a customer.
+     * Used to find or create conversations when processing webhook messages.
+     */
+    Optional<Conversation> findByBusinessIdAndInstagramScopedUserId(Long businessId, String instagramScopedUserId);
+
+    /**
      * Find all conversations for a specific Instagram Business Account.
      * Used for data deletion - we traverse Business -> Conversations.
      */

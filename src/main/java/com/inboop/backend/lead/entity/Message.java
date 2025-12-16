@@ -43,6 +43,9 @@ public class Message {
     @Column(name = "has_attachment")
     private Boolean hasAttachment = false;
 
+    @Column(name = "attachment_type")
+    private String attachmentType;
+
     @Column(name = "attachment_url", length = 1000)
     private String attachmentUrl;
 
@@ -150,6 +153,14 @@ public class Message {
 
     public void setHasAttachment(Boolean hasAttachment) {
         this.hasAttachment = hasAttachment;
+    }
+
+    public String getAttachmentType() {
+        return attachmentType;
+    }
+
+    public void setAttachmentType(String attachmentType) {
+        this.attachmentType = attachmentType;
     }
 
     public String getAttachmentUrl() {
