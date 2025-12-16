@@ -19,14 +19,14 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     /**
      * Find all orders for a specific Instagram Business Account.
      */
-    @Query("SELECT o FROM Order o WHERE o.business.instagramBusinessId = :instagramBusinessId")
-    List<Order> findAllByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT o FROM Order o WHERE o.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    List<Order> findAllByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Count orders for a business.
      */
-    @Query("SELECT COUNT(o) FROM Order o WHERE o.business.instagramBusinessId = :instagramBusinessId")
-    long countByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    long countByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Anonymize order customer data for GDPR compliance.
@@ -47,6 +47,6 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Modifying
     @Query("UPDATE Order o SET o.customerName = 'DELETED', o.customerPhone = null, " +
            "o.customerAddress = null, o.lead = null " +
-           "WHERE o.business.instagramBusinessId = :instagramBusinessId")
-    int anonymizeByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+           "WHERE o.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    int anonymizeByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 }

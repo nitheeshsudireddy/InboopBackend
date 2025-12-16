@@ -15,11 +15,14 @@ public class Business {
     @Column(nullable = false)
     private String name;
 
-    @Column(name = "instagram_business_id", unique = true)
-    private String instagramBusinessId;
+    @Column(name = "facebook_user_id")
+    private String facebookUserId;
 
-    @Column(name = "instagram_page_id")
-    private String instagramPageId;
+    @Column(name = "facebook_page_id")
+    private String facebookPageId;
+
+    @Column(name = "instagram_business_account_id", unique = true)
+    private String instagramBusinessAccountId;
 
     @Column(name = "instagram_username")
     private String instagramUsername;
@@ -74,20 +77,28 @@ public class Business {
         this.name = name;
     }
 
-    public String getInstagramBusinessId() {
-        return instagramBusinessId;
+    public String getFacebookUserId() {
+        return facebookUserId;
     }
 
-    public void setInstagramBusinessId(String instagramBusinessId) {
-        this.instagramBusinessId = instagramBusinessId;
+    public void setFacebookUserId(String facebookUserId) {
+        this.facebookUserId = facebookUserId;
     }
 
-    public String getInstagramPageId() {
-        return instagramPageId;
+    public String getFacebookPageId() {
+        return facebookPageId;
     }
 
-    public void setInstagramPageId(String instagramPageId) {
-        this.instagramPageId = instagramPageId;
+    public void setFacebookPageId(String facebookPageId) {
+        this.facebookPageId = facebookPageId;
+    }
+
+    public String getInstagramBusinessAccountId() {
+        return instagramBusinessAccountId;
+    }
+
+    public void setInstagramBusinessAccountId(String instagramBusinessAccountId) {
+        this.instagramBusinessAccountId = instagramBusinessAccountId;
     }
 
     public String getInstagramUsername() {

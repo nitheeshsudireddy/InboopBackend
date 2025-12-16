@@ -13,18 +13,20 @@ import java.util.Optional;
 @Repository
 public interface BusinessRepository extends JpaRepository<Business, Long> {
 
-    Optional<Business> findByInstagramBusinessId(String instagramBusinessId);
+    Optional<Business> findByInstagramBusinessAccountId(String instagramBusinessAccountId);
+
+    Optional<Business> findByFacebookPageId(String facebookPageId);
 
     List<Business> findByOwnerId(Long ownerId);
 
-    List<Business> findByInstagramPageId(String instagramPageId);
+    List<Business> findByFacebookUserId(String facebookUserId);
 
     /**
      * Find all businesses associated with an Instagram Business Account ID.
      * Used for Meta data deletion - we need to find all businesses to delete their data.
      */
-    @Query("SELECT b FROM Business b WHERE b.instagramBusinessId = :instagramBusinessId")
-    List<Business> findAllByInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT b FROM Business b WHERE b.instagramBusinessAccountId = :instagramBusinessAccountId")
+    List<Business> findAllByInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Anonymize business data for GDPR compliance.
@@ -37,6 +39,6 @@ public interface BusinessRepository extends JpaRepository<Business, Long> {
     @Modifying
     @Query("UPDATE Business b SET b.accessToken = null, b.tokenExpiresAt = null, " +
            "b.instagramUsername = 'DELETED', b.isActive = false, b.webhookVerified = false " +
-           "WHERE b.instagramBusinessId = :instagramBusinessId")
-    int anonymizeByInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+           "WHERE b.instagramBusinessAccountId = :instagramBusinessAccountId")
+    int anonymizeByInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 }

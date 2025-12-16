@@ -27,15 +27,15 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * Find all conversations for a specific Instagram Business Account.
      * Used for data deletion - we traverse Business -> Conversations.
      */
-    @Query("SELECT c FROM Conversation c WHERE c.business.instagramBusinessId = :instagramBusinessId")
-    List<Conversation> findAllByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT c FROM Conversation c WHERE c.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    List<Conversation> findAllByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Get IDs of all conversations for a business.
      * Used for efficient bulk deletion of messages.
      */
-    @Query("SELECT c.id FROM Conversation c WHERE c.business.instagramBusinessId = :instagramBusinessId")
-    List<Long> findIdsByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT c.id FROM Conversation c WHERE c.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    List<Long> findIdsByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Delete all conversations for a specific Instagram Business Account.
@@ -45,6 +45,6 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * must be deleted when the business requests data deletion.
      */
     @Modifying
-    @Query("DELETE FROM Conversation c WHERE c.business.instagramBusinessId = :instagramBusinessId")
-    int deleteByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("DELETE FROM Conversation c WHERE c.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    int deleteByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 }

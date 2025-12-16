@@ -110,11 +110,10 @@ public class InstagramWebhookService {
         String customerId = isFromCustomer ? senderId : recipientId;
         String businessPageId = isFromCustomer ? recipientId : senderId;
 
-        // Find the business by Instagram Page ID
-        // Note: findByInstagramPageId returns List because multiple businesses could share a page
-        // but in practice we take the first one
-        List<Business> businesses = businessRepository.findByInstagramPageId(businessPageId);
-        Optional<Business> businessOpt = businesses.isEmpty() ? Optional.empty() : Optional.of(businesses.get(0));
+        // Find the business by Facebook Page ID
+        // The sender/recipient ID in webhook is the Instagram Business Account ID or Facebook Page ID
+        Optional<Business> businessOpt = businessRepository.findByFacebookPageId(businessPageId)
+                .or(() -> businessRepository.findByInstagramBusinessAccountId(businessPageId));
 
         if (businessOpt.isEmpty()) {
             logger.warn("No business found for Instagram Page ID: {}", businessPageId);

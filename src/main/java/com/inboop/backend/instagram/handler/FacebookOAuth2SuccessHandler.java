@@ -3,8 +3,8 @@ package com.inboop.backend.instagram.handler;
 import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.auth.repository.UserRepository;
 import com.inboop.backend.business.entity.Business;
-import com.inboop.backend.business.repository.BusinessRepository;
 import com.inboop.backend.instagram.controller.InstagramConnectionController;
+import com.inboop.backend.instagram.service.InstagramBusinessService;
 import com.inboop.backend.instagram.util.SecureCookieUtil;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -25,9 +25,8 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Handles successful Facebook/Instagram OAuth2 authentication.
@@ -36,9 +35,10 @@ import java.util.Arrays;
  *
  * Flow:
  * 1. Read secure cookie to identify which user initiated the connection
- * 2. Store access token in Business entity associated with that user
- * 3. Clear the connection cookie
- * 4. Redirect to frontend with just ?success=true
+ * 2. Fetch Facebook Pages and linked Instagram Business Accounts
+ * 3. Store the mapping in Business entities
+ * 4. Clear the connection cookie
+ * 5. Redirect to frontend with just ?instagram_connected=true
  */
 @Component
 public class FacebookOAuth2SuccessHandler implements AuthenticationSuccessHandler {
@@ -48,7 +48,7 @@ public class FacebookOAuth2SuccessHandler implements AuthenticationSuccessHandle
     private final OAuth2AuthorizedClientService authorizedClientService;
     private final SecureCookieUtil secureCookieUtil;
     private final UserRepository userRepository;
-    private final BusinessRepository businessRepository;
+    private final InstagramBusinessService instagramBusinessService;
 
     @Value("${app.frontend.url:https://app.inboop.com}")
     private String frontendUrl;
@@ -56,11 +56,11 @@ public class FacebookOAuth2SuccessHandler implements AuthenticationSuccessHandle
     public FacebookOAuth2SuccessHandler(OAuth2AuthorizedClientService authorizedClientService,
                                         SecureCookieUtil secureCookieUtil,
                                         UserRepository userRepository,
-                                        BusinessRepository businessRepository) {
+                                        InstagramBusinessService instagramBusinessService) {
         this.authorizedClientService = authorizedClientService;
         this.secureCookieUtil = secureCookieUtil;
         this.userRepository = userRepository;
-        this.businessRepository = businessRepository;
+        this.instagramBusinessService = instagramBusinessService;
     }
 
     @Override
@@ -112,28 +112,30 @@ public class FacebookOAuth2SuccessHandler implements AuthenticationSuccessHandle
             String accessToken = authorizedClient.getAccessToken().getTokenValue();
             Instant expiresAt = authorizedClient.getAccessToken().getExpiresAt();
 
-            // Get Facebook user info from OAuth2User
+            // Get Facebook user ID from OAuth2User
             OAuth2User oAuth2User = oauthToken.getPrincipal();
             String facebookUserId = oAuth2User.getAttribute("id");
-            String facebookUserName = oAuth2User.getAttribute("name");
 
-            // Store the token in a Business entity
-            Business business = findOrCreateBusiness(user, facebookUserId, facebookUserName);
-            business.setAccessToken(accessToken);
-            if (expiresAt != null) {
-                business.setTokenExpiresAt(LocalDateTime.ofInstant(expiresAt, ZoneId.systemDefault()));
+            log.info("Facebook OAuth successful for user ID: {}, Facebook user ID: {}", userId, facebookUserId);
+
+            // Fetch Facebook Pages and linked Instagram Business Accounts
+            List<Business> connectedBusinesses = instagramBusinessService.connectInstagramAccounts(
+                    user, facebookUserId, accessToken, expiresAt);
+
+            if (connectedBusinesses.isEmpty()) {
+                log.warn("No Instagram Business Accounts found for user ID: {}", userId);
+                redirectWithError(response, "no_instagram_accounts");
+                return;
             }
-            business.setIsActive(true);
-            businessRepository.save(business);
 
-            log.info("Successfully connected Instagram for user ID: {}, business ID: {}",
-                    userId, business.getId());
+            log.info("Successfully connected {} Instagram Business Account(s) for user ID: {}",
+                    connectedBusinesses.size(), userId);
 
             // Clear the connection cookie
             clearConnectionCookie(response);
 
             // Redirect to frontend with success (no token in URL!)
-            response.sendRedirect(frontendUrl + "/settings?instagram_connected=true");
+            response.sendRedirect(frontendUrl + "/settings?instagram_connected=true&count=" + connectedBusinesses.size());
 
         } catch (Exception e) {
             log.error("Error processing Facebook OAuth success: {}", e.getMessage(), e);
@@ -184,21 +186,6 @@ public class FacebookOAuth2SuccessHandler implements AuthenticationSuccessHandle
             log.warn("Failed to parse cookie value: {}", e.getMessage());
             return null;
         }
-    }
-
-    private Business findOrCreateBusiness(User user, String facebookUserId, String facebookUserName) {
-        // First, try to find existing business for this user
-        return businessRepository.findByOwnerId(user.getId()).stream()
-                .filter(b -> b.getInstagramBusinessId() == null ||
-                        b.getInstagramBusinessId().equals(facebookUserId))
-                .findFirst()
-                .orElseGet(() -> {
-                    Business newBusiness = new Business();
-                    newBusiness.setOwner(user);
-                    newBusiness.setName(facebookUserName != null ? facebookUserName + "'s Business" : "My Business");
-                    newBusiness.setInstagramBusinessId(facebookUserId);
-                    return newBusiness;
-                });
     }
 
     private void clearConnectionCookie(HttpServletResponse response) {

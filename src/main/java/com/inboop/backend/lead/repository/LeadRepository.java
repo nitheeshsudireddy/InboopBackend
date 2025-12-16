@@ -26,15 +26,15 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
     /**
      * Find all leads for a specific Instagram Business Account.
      */
-    @Query("SELECT l FROM Lead l WHERE l.business.instagramBusinessId = :instagramBusinessId")
-    List<Lead> findAllByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT l FROM Lead l WHERE l.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    List<Lead> findAllByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Get IDs of all leads for a business.
      * Used for efficient bulk deletion of lead_labels.
      */
-    @Query("SELECT l.id FROM Lead l WHERE l.business.instagramBusinessId = :instagramBusinessId")
-    List<Long> findIdsByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT l.id FROM Lead l WHERE l.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    List<Long> findIdsByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Delete all leads for a specific Instagram Business Account.
@@ -45,6 +45,6 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
      * The lead_labels collection table entries are deleted via cascade.
      */
     @Modifying
-    @Query("DELETE FROM Lead l WHERE l.business.instagramBusinessId = :instagramBusinessId")
-    int deleteByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("DELETE FROM Lead l WHERE l.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    int deleteByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 }

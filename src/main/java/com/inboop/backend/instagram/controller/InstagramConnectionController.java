@@ -153,18 +153,20 @@ public class InstagramConnectionController {
 
         // Find user's active businesses with Instagram connected
         List<Business> businesses = businessRepository.findByOwnerId(user.getId());
-        Business connectedBusiness = businesses.stream()
-                .filter(b -> b.getIsActive() && b.getAccessToken() != null)
-                .findFirst()
-                .orElse(null);
+        List<Business> connectedBusinesses = businesses.stream()
+                .filter(b -> b.getIsActive() && b.getAccessToken() != null && b.getInstagramBusinessAccountId() != null)
+                .toList();
 
-        if (connectedBusiness != null) {
+        if (!connectedBusinesses.isEmpty()) {
+            Business primary = connectedBusinesses.get(0);
             return ResponseEntity.ok(Map.of(
                     "connected", true,
                     "configured", isConfigured(),
-                    "instagramUsername", connectedBusiness.getInstagramUsername() != null
-                            ? connectedBusiness.getInstagramUsername() : "",
-                    "businessName", connectedBusiness.getName()
+                    "count", connectedBusinesses.size(),
+                    "instagramBusinessAccountId", primary.getInstagramBusinessAccountId(),
+                    "instagramUsername", primary.getInstagramUsername() != null ? primary.getInstagramUsername() : "",
+                    "facebookPageId", primary.getFacebookPageId() != null ? primary.getFacebookPageId() : "",
+                    "businessName", primary.getName()
             ));
         }
 

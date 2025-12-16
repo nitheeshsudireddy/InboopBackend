@@ -271,7 +271,7 @@ public class DataDeletionService {
             if (instagramBusinessId != null) {
                 // Get conversation IDs for efficient message deletion
                 List<Long> conversationIds = conversationRepository
-                        .findIdsByBusinessInstagramBusinessId(instagramBusinessId);
+                        .findIdsByBusinessInstagramBusinessAccountId(instagramBusinessId);
 
                 // Step 1: Delete messages (most sensitive - actual DM content)
                 if (!conversationIds.isEmpty()) {
@@ -281,21 +281,21 @@ public class DataDeletionService {
                 }
 
                 // Step 2: Anonymize orders (keep records, remove PII)
-                int ordersAnonymized = orderRepository.anonymizeByBusinessInstagramBusinessId(instagramBusinessId);
+                int ordersAnonymized = orderRepository.anonymizeByBusinessInstagramBusinessAccountId(instagramBusinessId);
                 log.info("Anonymized {} orders for business {}", ordersAnonymized, instagramBusinessId);
 
                 // Step 3: Delete leads (customer PII)
-                int leadsDeleted = leadRepository.deleteByBusinessInstagramBusinessId(instagramBusinessId);
+                int leadsDeleted = leadRepository.deleteByBusinessInstagramBusinessAccountId(instagramBusinessId);
                 log.info("Deleted {} leads for business {}", leadsDeleted, instagramBusinessId);
                 totalDeleted += leadsDeleted;
 
                 // Step 4: Delete conversations (customer handles, names)
-                int conversationsDeleted = conversationRepository.deleteByBusinessInstagramBusinessId(instagramBusinessId);
+                int conversationsDeleted = conversationRepository.deleteByBusinessInstagramBusinessAccountId(instagramBusinessId);
                 log.info("Deleted {} conversations for business {}", conversationsDeleted, instagramBusinessId);
                 totalDeleted += conversationsDeleted;
 
                 // Step 5: Anonymize business (remove tokens, mark inactive)
-                int businessesAnonymized = businessRepository.anonymizeByInstagramBusinessId(instagramBusinessId);
+                int businessesAnonymized = businessRepository.anonymizeByInstagramBusinessAccountId(instagramBusinessId);
                 log.info("Anonymized {} businesses for Instagram ID {}", businessesAnonymized, instagramBusinessId);
             }
 

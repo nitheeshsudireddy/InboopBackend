@@ -20,15 +20,15 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /**
      * Find all messages for conversations belonging to a specific Instagram Business Account.
      */
-    @Query("SELECT m FROM Message m WHERE m.conversation.business.instagramBusinessId = :instagramBusinessId")
-    List<Message> findAllByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT m FROM Message m WHERE m.conversation.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    List<Message> findAllByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Count messages for a business.
      * Used for reporting how many records were deleted.
      */
-    @Query("SELECT COUNT(m) FROM Message m WHERE m.conversation.business.instagramBusinessId = :instagramBusinessId")
-    long countByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+    @Query("SELECT COUNT(m) FROM Message m WHERE m.conversation.business.instagramBusinessAccountId = :instagramBusinessAccountId")
+    long countByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Delete all messages for conversations belonging to a specific Instagram Business Account.
@@ -40,8 +40,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      */
     @Modifying
     @Query("DELETE FROM Message m WHERE m.conversation.id IN " +
-           "(SELECT c.id FROM Conversation c WHERE c.business.instagramBusinessId = :instagramBusinessId)")
-    int deleteByBusinessInstagramBusinessId(@Param("instagramBusinessId") String instagramBusinessId);
+           "(SELECT c.id FROM Conversation c WHERE c.business.instagramBusinessAccountId = :instagramBusinessAccountId)")
+    int deleteByBusinessInstagramBusinessAccountId(@Param("instagramBusinessAccountId") String instagramBusinessAccountId);
 
     /**
      * Delete messages by conversation IDs.
