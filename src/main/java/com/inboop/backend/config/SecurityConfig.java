@@ -85,6 +85,8 @@ public class SecurityConfig {
                         // GET /oauth2/authorization/facebook - initiates OAuth flow
                         // GET /login/oauth2/code/facebook - callback from Facebook
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+                        // Instagram connection start (uses one-time token, no JWT needed)
+                        .requestMatchers("/instagram/connect/start").permitAll()
                         // Protected endpoints (including /api/v1/integrations/instagram/*)
                         .requestMatchers("/api/v1/**").authenticated()
                         .requestMatchers("/dashboard").authenticated()

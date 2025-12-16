@@ -18,22 +18,27 @@ import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Controller for Instagram Business account connection.
  *
  * Flow:
- * 1. GET /api/v1/integrations/instagram/connect - Sets secure cookie, redirects to OAuth
- * 2. User authorizes on Facebook
- * 3. FacebookOAuth2SuccessHandler reads cookie, stores token, redirects to frontend
- * 4. GET /api/v1/integrations/instagram/status - Check connection status
+ * 1. POST /api/v1/integrations/instagram/connect (authenticated) - Returns connection token
+ * 2. Frontend redirects to GET /instagram/connect/start?token=xxx (public endpoint)
+ * 3. Backend sets cookie, redirects to Facebook OAuth
+ * 4. User authorizes on Facebook
+ * 5. FacebookOAuth2SuccessHandler reads cookie, stores token, redirects to frontend
  */
 @RestController
-@RequestMapping("/api/v1/integrations/instagram")
 public class InstagramConnectionController {
 
     private static final Logger log = LoggerFactory.getLogger(InstagramConnectionController.class);
     public static final String CONNECTION_COOKIE_NAME = "ig_connect";
+
+    // Simple in-memory store for connection tokens (userId -> token, token -> userId+timestamp)
+    // In production, use Redis or database
+    private static final ConcurrentHashMap<String, ConnectionToken> connectionTokens = new ConcurrentHashMap<>();
 
     private final SecureCookieUtil secureCookieUtil;
     private final UserRepository userRepository;
@@ -45,6 +50,9 @@ public class InstagramConnectionController {
     @Value("${app.cookie.secure:true}")
     private boolean secureCookie;
 
+    @Value("${app.frontend.url:https://app.inboop.com}")
+    private String frontendUrl;
+
     public InstagramConnectionController(SecureCookieUtil secureCookieUtil,
                                          UserRepository userRepository,
                                          BusinessRepository businessRepository) {
@@ -54,32 +62,60 @@ public class InstagramConnectionController {
     }
 
     /**
-     * Initiate Instagram connection.
-     * Sets a secure cookie with user ID and redirects to OAuth.
+     * Step 1: Initialize connection (requires JWT auth).
+     * Returns a one-time token that can be used to start the OAuth flow.
      *
-     * GET /api/v1/integrations/instagram/connect
+     * POST /api/v1/integrations/instagram/connect
      */
-    @GetMapping("/connect")
-    public void initiateConnection(@AuthenticationPrincipal UserDetails userDetails,
-                                   HttpServletResponse response) throws IOException {
+    @PostMapping("/api/v1/integrations/instagram/connect")
+    public ResponseEntity<Map<String, Object>> initializeConnection(
+            @AuthenticationPrincipal UserDetails userDetails) {
 
         if (!isConfigured()) {
-            log.warn("Instagram OAuth not configured");
-            response.sendRedirect("/settings?error=oauth_not_configured");
-            return;
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Instagram OAuth not configured"
+            ));
         }
 
-        User user = userRepository.findByEmail(userDetails.getUsername())
-                .orElse(null);
-
+        User user = userRepository.findByEmail(userDetails.getUsername()).orElse(null);
         if (user == null) {
-            log.error("User not found: {}", userDetails.getUsername());
-            response.sendRedirect("/settings?error=user_not_found");
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "User not found"
+            ));
+        }
+
+        // Generate a one-time connection token
+        String token = generateConnectionToken(user.getId());
+
+        log.info("Generated connection token for user ID: {}", user.getId());
+
+        return ResponseEntity.ok(Map.of(
+                "token", token,
+                "redirectUrl", "/instagram/connect/start?token=" + token
+        ));
+    }
+
+    /**
+     * Step 2: Start OAuth flow (public endpoint - no auth required).
+     * Validates the connection token, sets cookie, and redirects to Facebook.
+     *
+     * GET /instagram/connect/start?token=xxx
+     */
+    @GetMapping("/instagram/connect/start")
+    public void startOAuthFlow(@RequestParam String token,
+                               HttpServletResponse response) throws IOException {
+
+        // Validate and consume the connection token
+        ConnectionToken connToken = connectionTokens.remove(token);
+
+        if (connToken == null || connToken.isExpired()) {
+            log.warn("Invalid or expired connection token: {}", token);
+            response.sendRedirect(frontendUrl + "/settings?instagram_error=invalid_token");
             return;
         }
 
         // Create signed cookie with user ID and timestamp
-        String cookieValue = user.getId() + ":" + System.currentTimeMillis();
+        String cookieValue = connToken.userId + ":" + System.currentTimeMillis();
         String signedValue = secureCookieUtil.sign(cookieValue);
 
         Cookie cookie = new Cookie(CONNECTION_COOKIE_NAME, signedValue);
@@ -91,7 +127,7 @@ public class InstagramConnectionController {
 
         response.addCookie(cookie);
 
-        log.info("Initiating Instagram connection for user ID: {}", user.getId());
+        log.info("Starting Instagram OAuth for user ID: {}", connToken.userId);
 
         // Redirect to Spring Security's OAuth2 authorization endpoint
         response.sendRedirect("/oauth2/authorization/facebook");
@@ -102,12 +138,11 @@ public class InstagramConnectionController {
      *
      * GET /api/v1/integrations/instagram/status
      */
-    @GetMapping("/status")
+    @GetMapping("/api/v1/integrations/instagram/status")
     public ResponseEntity<Map<String, Object>> getConnectionStatus(
             @AuthenticationPrincipal UserDetails userDetails) {
 
-        User user = userRepository.findByEmail(userDetails.getUsername())
-                .orElse(null);
+        User user = userRepository.findByEmail(userDetails.getUsername()).orElse(null);
 
         if (user == null) {
             return ResponseEntity.ok(Map.of(
@@ -144,12 +179,11 @@ public class InstagramConnectionController {
      *
      * DELETE /api/v1/integrations/instagram/disconnect
      */
-    @DeleteMapping("/disconnect")
+    @DeleteMapping("/api/v1/integrations/instagram/disconnect")
     public ResponseEntity<Map<String, Object>> disconnect(
             @AuthenticationPrincipal UserDetails userDetails) {
 
-        User user = userRepository.findByEmail(userDetails.getUsername())
-                .orElse(null);
+        User user = userRepository.findByEmail(userDetails.getUsername()).orElse(null);
 
         if (user == null) {
             return ResponseEntity.badRequest().body(Map.of(
@@ -182,5 +216,29 @@ public class InstagramConnectionController {
 
     private boolean isConfigured() {
         return clientId != null && !clientId.isEmpty() && !clientId.equals("placeholder");
+    }
+
+    private String generateConnectionToken(Long userId) {
+        // Clean up expired tokens periodically
+        connectionTokens.entrySet().removeIf(e -> e.getValue().isExpired());
+
+        String token = java.util.UUID.randomUUID().toString();
+        connectionTokens.put(token, new ConnectionToken(userId, System.currentTimeMillis()));
+        return token;
+    }
+
+    private static class ConnectionToken {
+        final Long userId;
+        final long createdAt;
+
+        ConnectionToken(Long userId, long createdAt) {
+            this.userId = userId;
+            this.createdAt = createdAt;
+        }
+
+        boolean isExpired() {
+            // Token expires after 5 minutes
+            return System.currentTimeMillis() - createdAt > 300_000;
+        }
     }
 }
