@@ -144,10 +144,19 @@ public class AuthService {
                     return userRepository.save(newUser);
                 });
 
-        // Update OAuth info if user exists but wasn't linked to Google
+        // Update OAuth info and name if user exists
+        boolean needsUpdate = false;
         if (user.getOauthProvider() == null || user.getOauthProvider().equals("LOCAL")) {
             user.setOauthProvider("GOOGLE");
             user.setOauthId(googleId);
+            needsUpdate = true;
+        }
+        // Update name from Google if it's different (or was a placeholder)
+        if (name != null && !name.equals(user.getName())) {
+            user.setName(name);
+            needsUpdate = true;
+        }
+        if (needsUpdate) {
             userRepository.save(user);
         }
 
