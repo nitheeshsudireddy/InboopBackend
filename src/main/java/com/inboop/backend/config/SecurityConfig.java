@@ -1,6 +1,7 @@
 package com.inboop.backend.config;
 
 import com.inboop.backend.auth.security.JwtAuthenticationFilter;
+import com.inboop.backend.instagram.handler.FacebookOAuth2SuccessHandler;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,19 +20,39 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 
+/**
+ * Security configuration for the application.
+ *
+ * OAUTH2 LOGIN FLOW (handled by Spring Security):
+ * 1. User visits GET /oauth2/authorization/facebook
+ * 2. Spring redirects to Facebook with proper URL encoding and CSRF state
+ * 3. User authorizes on Facebook
+ * 4. Facebook redirects to GET /login/oauth2/code/facebook?code=xxx&state=yyy
+ * 5. Spring validates state, exchanges code for token
+ * 6. FacebookOAuth2SuccessHandler redirects to frontend with token
+ *
+ * WHY THIS IS SAFER THAN MANUAL URL BUILDING:
+ * - Spring generates cryptographically secure 'state' parameter
+ * - State is validated on callback (prevents CSRF attacks)
+ * - URLs are properly encoded (prevents injection attacks)
+ * - Token exchange happens server-side securely
+ */
 @Configuration
 public class SecurityConfig {
 
     private final UserDetailsService customUserDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final FacebookOAuth2SuccessHandler facebookOAuth2SuccessHandler;
 
     @Value("${app.cors.allowed-origins:http://localhost:3000}")
     private String allowedOriginsString;
 
     public SecurityConfig(UserDetailsService customUserDetailsService,
-                          JwtAuthenticationFilter jwtAuthenticationFilter) {
+                          JwtAuthenticationFilter jwtAuthenticationFilter,
+                          FacebookOAuth2SuccessHandler facebookOAuth2SuccessHandler) {
         this.customUserDetailsService = customUserDetailsService;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.facebookOAuth2SuccessHandler = facebookOAuth2SuccessHandler;
     }
 
     @Bean
@@ -59,19 +80,25 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/webhooks/**").permitAll()
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/google").permitAll()
                         // Meta callback endpoints (no auth - verified via signed_request)
-                        // META APP REVIEW NOTE: These endpoints must be public because:
-                        // 1. Meta's servers call them directly (no user session)
-                        // 2. Authentication is via HMAC signature verification using app secret
-                        // 3. Invalid signatures are rejected in the controller
                         .requestMatchers("/meta/**").permitAll()
-                        // Facebook/Instagram OAuth callback (public - Facebook redirects here)
-                        .requestMatchers("/login/oauth2/code/**").permitAll()
-                        // Instagram OAuth initiation endpoint
-                        .requestMatchers("/api/v1/instagram/oauth/**").permitAll()
+                        // OAuth2 endpoints - Spring Security handles these automatically:
+                        // GET /oauth2/authorization/facebook - initiates OAuth flow
+                        // GET /login/oauth2/code/facebook - callback from Facebook
+                        .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+                        // Legacy endpoint for status check
+                        .requestMatchers("/api/v1/instagram/oauth/status").permitAll()
                         // Protected endpoints
                         .requestMatchers("/api/v1/**").authenticated()
                         .requestMatchers("/dashboard").authenticated()
                         .anyRequest().authenticated()
+                )
+                // Enable OAuth2 Login for Facebook/Instagram
+                // Spring Security handles:
+                // - URL generation with proper encoding
+                // - CSRF state parameter generation and validation
+                // - Authorization code exchange for access token
+                .oauth2Login(oauth2 -> oauth2
+                        .successHandler(facebookOAuth2SuccessHandler)
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
