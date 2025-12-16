@@ -200,6 +200,9 @@ public class InstagramConnectionController {
 
         for (Business business : businesses) {
             if (business.getAccessToken() != null) {
+                // Revoke the token with Facebook (best practice)
+                revokeAccessToken(business.getAccessToken());
+
                 business.setAccessToken(null);
                 business.setTokenExpiresAt(null);
                 business.setIsActive(false);
@@ -214,6 +217,89 @@ public class InstagramConnectionController {
                 "success", true,
                 "disconnected", disconnected
         ));
+    }
+
+    /**
+     * Disconnect a specific Instagram business account by ID.
+     *
+     * DELETE /api/v1/integrations/instagram/disconnect/{businessId}
+     */
+    @DeleteMapping("/api/v1/integrations/instagram/disconnect/{businessId}")
+    public ResponseEntity<Map<String, Object>> disconnectById(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long businessId) {
+
+        User user = userRepository.findByEmail(userDetails.getUsername()).orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "error", "User not found"
+            ));
+        }
+
+        // Find the specific business
+        Business business = businessRepository.findById(businessId).orElse(null);
+
+        if (business == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "error", "Business not found"
+            ));
+        }
+
+        // Verify ownership
+        if (!business.getOwner().getId().equals(user.getId())) {
+            return ResponseEntity.status(403).body(Map.of(
+                    "success", false,
+                    "error", "Not authorized to disconnect this account"
+            ));
+        }
+
+        if (business.getAccessToken() == null && !Boolean.TRUE.equals(business.getIsActive())) {
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Account already disconnected"
+            ));
+        }
+
+        // Revoke the token with Facebook (best practice)
+        if (business.getAccessToken() != null) {
+            revokeAccessToken(business.getAccessToken());
+        }
+
+        business.setAccessToken(null);
+        business.setTokenExpiresAt(null);
+        business.setIsActive(false);
+        businessRepository.save(business);
+
+        log.info("Disconnected Instagram account {} for user ID: {}", businessId, user.getId());
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "disconnectedBusinessId", businessId,
+                "businessName", business.getName() != null ? business.getName() : ""
+        ));
+    }
+
+    /**
+     * Revoke an access token with Facebook's API.
+     * This is a best practice - ensures the token can't be used even if leaked.
+     */
+    private void revokeAccessToken(String accessToken) {
+        if (accessToken == null || accessToken.isEmpty()) {
+            return;
+        }
+
+        try {
+            String url = "https://graph.facebook.com/v21.0/me/permissions?access_token=" + accessToken;
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            restTemplate.delete(url);
+            log.debug("Successfully revoked Facebook access token");
+        } catch (Exception e) {
+            // Log but don't fail - token may already be invalid
+            log.warn("Failed to revoke Facebook access token: {}", e.getMessage());
+        }
     }
 
     private boolean isConfigured() {
