@@ -11,23 +11,31 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Service for checking Instagram integration readiness.
+ *
  * Performs real-time checks against Facebook Graph API to verify:
  * - Pages are accessible
  * - Instagram Business Account is linked
  * - Permissions are valid
  * - No cooldown periods are active
+ *
+ * All responses are deterministic and all checks are logged with structured format.
+ * Access tokens are NEVER exposed in logs or responses.
  */
 @Service
 public class InstagramIntegrationCheckService {
@@ -45,57 +53,103 @@ public class InstagramIntegrationCheckService {
 
     /**
      * Check the integration status for a user.
-     * This performs real-time API checks if the user has a connected account.
+     * This performs real-time API checks and updates the stored connection context.
      */
+    @Transactional
     public IntegrationStatusResponse checkStatus(User user) {
-        log.info("Checking Instagram integration status for user ID: {}", user.getId());
+        log.info("[StatusCheck] Starting for user_id={}", user.getId());
 
-        // Step 1: Check if user has any connected businesses
+        // Step 1: Check if user has any businesses (connected or with error context)
         List<Business> businesses = businessRepository.findByOwnerId(user.getId());
-        List<Business> activeBusinesses = businesses.stream()
-                .filter(b -> Boolean.TRUE.equals(b.getIsActive()) && b.getAccessToken() != null)
-                .toList();
 
-        if (activeBusinesses.isEmpty()) {
-            log.info("User {} has no connected Instagram accounts", user.getId());
+        if (businesses.isEmpty()) {
+            log.info("[StatusCheck] Result: user_id={}, status=NOT_CONNECTED, reason=no_businesses_in_db", user.getId());
             return IntegrationStatusResponse.notConnected();
         }
 
-        // Step 2: Use the first active business (primary account)
-        Business business = activeBusinesses.get(0);
+        // Step 2: Find the primary business (prefer active ones)
+        Business business = businesses.stream()
+                .filter(b -> Boolean.TRUE.equals(b.getIsActive()))
+                .findFirst()
+                .orElse(businesses.get(0));
 
-        // Step 3: Perform real-time checks
-        return performIntegrationChecks(business);
+        // Step 3: Check for stored cooldown
+        if (business.getConnectionRetryAt() != null) {
+            LocalDateTime retryAt = business.getConnectionRetryAt();
+            if (retryAt.isAfter(LocalDateTime.now())) {
+                log.info("[StatusCheck] Result: user_id={}, status=BLOCKED, reason=ADMIN_COOLDOWN, retry_at={}",
+                        user.getId(), retryAt);
+                return buildAdminCooldownResponse(business, retryAt);
+            }
+        }
+
+        // Step 4: Check if we have a stored error from previous OAuth attempt
+        if (business.getLastConnectionError() != null && business.getAccessToken() != null) {
+            // We have a token but a previous error - re-check via API
+            log.debug("[StatusCheck] Previous error stored: {}, re-checking via API", business.getLastConnectionError());
+        }
+
+        // Step 5: If no access token, not connected
+        if (business.getAccessToken() == null) {
+            log.info("[StatusCheck] Result: user_id={}, status=NOT_CONNECTED, reason=no_access_token", user.getId());
+            return IntegrationStatusResponse.notConnected();
+        }
+
+        // Step 6: Perform real-time API checks
+        return performIntegrationChecks(user, business);
     }
 
     /**
      * Perform comprehensive integration checks for a business.
      */
-    private IntegrationStatusResponse performIntegrationChecks(Business business) {
+    private IntegrationStatusResponse performIntegrationChecks(User user, Business business) {
         String accessToken = business.getAccessToken();
+        String storedIgAccountId = business.getLastIgAccountIdSeen();
 
         // Check 1: Verify token is still valid and get pages
+        log.debug("[StatusCheck] Calling /me/accounts for user_id={}", user.getId());
         PagesCheckResult pagesResult = checkFacebookPages(accessToken);
 
         if (pagesResult.error != null) {
+            updateBusinessWithError(business, pagesResult.errorReason);
+            log.info("[StatusCheck] Result: user_id={}, status=BLOCKED, reason={}", user.getId(), pagesResult.errorReason);
             return pagesResult.error;
         }
 
+        List<String> pageIds = pagesResult.pages.stream()
+                .map(p -> (String) p.get("id"))
+                .collect(Collectors.toList());
+
+        log.info("[StatusCheck] Pages found: user_id={}, page_count={}, page_ids={}",
+                user.getId(), pagesResult.pages.size(), pageIds);
+
         if (pagesResult.pages.isEmpty()) {
+            updateBusinessWithError(business, "NO_PAGES_FOUND");
+            log.info("[StatusCheck] Result: user_id={}, status=BLOCKED, reason=NO_PAGES_FOUND", user.getId());
             return buildNoPagesResponse();
         }
 
+        // Update stored page IDs
+        business.setAvailablePageIds(String.join(",", pageIds));
+
         // Check 2: Verify Instagram Business Account is linked
-        InstagramCheckResult igResult = checkInstagramAccount(business, pagesResult.pages, accessToken);
+        log.debug("[StatusCheck] Checking Instagram accounts for {} pages", pagesResult.pages.size());
+        InstagramCheckResult igResult = checkInstagramAccounts(business, pagesResult.pages, accessToken, storedIgAccountId);
 
         if (igResult.error != null) {
+            updateBusinessWithError(business, igResult.errorReason);
+            log.info("[StatusCheck] Result: user_id={}, status=BLOCKED, reason={}", user.getId(), igResult.errorReason);
             return igResult.error;
         }
 
-        // Check 3: Verify messaging permissions (optional, for v2)
-        // For now, if we get here, the account is ready
+        // Success - update business with latest info
+        business.setLastConnectionError(null);
+        business.setLastStatusCheckAt(LocalDateTime.now());
+        business.setIsActive(true);
+        businessRepository.save(business);
 
-        log.info("Integration check passed for business {}", business.getId());
+        log.info("[StatusCheck] Result: user_id={}, status=CONNECTED_READY, ig_account_id={}, ig_username={}",
+                user.getId(), business.getInstagramBusinessAccountId(), business.getInstagramUsername());
 
         return IntegrationStatusResponse.connectedReady(
                 business.getInstagramUsername(),
@@ -105,7 +159,7 @@ public class InstagramIntegrationCheckService {
     }
 
     /**
-     * Check Facebook Pages accessibility.
+     * Check Facebook Pages accessibility via /me/accounts.
      */
     private PagesCheckResult checkFacebookPages(String accessToken) {
         String url = GRAPH_API_BASE + "/me/accounts?access_token=" + accessToken;
@@ -115,7 +169,8 @@ public class InstagramIntegrationCheckService {
             Map<String, Object> body = response.getBody();
 
             if (body == null) {
-                return new PagesCheckResult(buildApiErrorResponse("Empty response from Facebook API"));
+                log.warn("[StatusCheck] Null response from /me/accounts");
+                return new PagesCheckResult(buildApiErrorResponse("Empty response from Facebook API"), "API_ERROR");
             }
 
             // Check for API errors
@@ -125,70 +180,143 @@ public class InstagramIntegrationCheckService {
 
             List<Map<String, Object>> data = (List<Map<String, Object>>) body.get("data");
 
-            if (data == null || data.isEmpty()) {
+            if (data == null) {
+                log.warn("[StatusCheck] No 'data' field in /me/accounts response");
                 return new PagesCheckResult(List.of());
             }
 
             return new PagesCheckResult(data);
 
         } catch (HttpClientErrorException.Unauthorized e) {
-            log.warn("Token expired or invalid: {}", e.getMessage());
-            return new PagesCheckResult(buildTokenExpiredResponse());
+            log.warn("[StatusCheck] Token expired or invalid (401)");
+            return new PagesCheckResult(buildTokenExpiredResponse(), "TOKEN_EXPIRED");
+        } catch (HttpClientErrorException e) {
+            log.warn("[StatusCheck] HTTP error from /me/accounts: status={}", e.getStatusCode());
+            return handleHttpError(e);
         } catch (RestClientException e) {
-            log.error("Failed to check Facebook Pages: {}", e.getMessage());
-            return new PagesCheckResult(buildApiErrorResponse("Failed to connect to Facebook: " + e.getMessage()));
+            log.error("[StatusCheck] Network error calling /me/accounts: {}", e.getMessage());
+            return new PagesCheckResult(buildApiErrorResponse("Failed to connect to Facebook: " + e.getMessage()), "API_ERROR");
         }
     }
 
     /**
-     * Check Instagram Business Account status.
+     * Check Instagram Business Account status for each page.
      */
-    private InstagramCheckResult checkInstagramAccount(Business business, List<Map<String, Object>> pages, String accessToken) {
-        // Find the page that matches our stored Facebook Page ID
-        Optional<Map<String, Object>> matchingPage = pages.stream()
-                .filter(p -> business.getFacebookPageId() != null &&
-                            business.getFacebookPageId().equals(p.get("id")))
-                .findFirst();
+    private InstagramCheckResult checkInstagramAccounts(Business business, List<Map<String, Object>> pages,
+                                                         String accessToken, String storedIgAccountId) {
+        List<String> checkedPageIds = new ArrayList<>();
+        String foundIgAccountId = null;
+        String foundIgUsername = null;
+        String foundPageId = null;
+        String foundPageName = null;
 
-        if (matchingPage.isEmpty()) {
-            // Page no longer accessible - could be ownership change or permission revoked
-            log.warn("Stored Facebook Page {} not found in user's pages", business.getFacebookPageId());
-            return new InstagramCheckResult(buildOwnershipMismatchResponse(business));
+        for (Map<String, Object> page : pages) {
+            String pageId = (String) page.get("id");
+            String pageName = (String) page.get("name");
+            checkedPageIds.add(pageId);
+
+            log.debug("[StatusCheck] Checking page_id={} for instagram_business_account", pageId);
+
+            String igCheckUrl = GRAPH_API_BASE + "/" + pageId + "?fields=instagram_business_account&access_token=" + accessToken;
+
+            try {
+                ResponseEntity<Map> response = restTemplate.getForEntity(igCheckUrl, Map.class);
+                Map<String, Object> body = response.getBody();
+
+                if (body != null && body.containsKey("instagram_business_account")) {
+                    Map<String, Object> igAccount = (Map<String, Object>) body.get("instagram_business_account");
+                    String igId = (String) igAccount.get("id");
+
+                    log.info("[StatusCheck] Found instagram_business_account: page_id={}, ig_account_id={}", pageId, igId);
+
+                    // Fetch username
+                    String username = fetchInstagramUsername(igId, accessToken);
+
+                    foundIgAccountId = igId;
+                    foundIgUsername = username;
+                    foundPageId = pageId;
+                    foundPageName = pageName;
+
+                    // Update business with found account
+                    business.setInstagramBusinessAccountId(igId);
+                    business.setInstagramUsername(username);
+                    business.setFacebookPageId(pageId);
+                    business.setSelectedPageId(pageId);
+                    business.setLastIgAccountIdSeen(igId);
+                    business.setName(pageName);
+
+                    break; // Found one, that's enough
+                } else {
+                    log.debug("[StatusCheck] No instagram_business_account for page_id={}", pageId);
+                }
+
+            } catch (HttpClientErrorException e) {
+                log.warn("[StatusCheck] Error checking page_id={}: status={}", pageId, e.getStatusCode());
+                // Check for admin cooldown
+                if (isAdminCooldownError(e)) {
+                    LocalDateTime retryAt = LocalDateTime.now().plus(7, ChronoUnit.DAYS);
+                    business.setConnectionRetryAt(retryAt);
+                    businessRepository.save(business);
+                    return new InstagramCheckResult(buildAdminCooldownResponse(business, retryAt), "ADMIN_COOLDOWN");
+                }
+            } catch (RestClientException e) {
+                log.warn("[StatusCheck] Network error checking page_id={}: {}", pageId, e.getMessage());
+            }
         }
 
-        // Check if Instagram is still linked to the page
-        String pageId = (String) matchingPage.get().get("id");
-        String igCheckUrl = GRAPH_API_BASE + "/" + pageId + "?fields=instagram_business_account&access_token=" + accessToken;
+        log.info("[StatusCheck] Instagram check complete: checked_pages={}, ig_found={}",
+                checkedPageIds, foundIgAccountId != null);
+
+        if (foundIgAccountId == null) {
+            // No IG account found on any page
+            // Check if we previously saw an IG account (ownership mismatch)
+            if (storedIgAccountId != null) {
+                log.warn("[StatusCheck] Previously saw ig_account_id={} but now not found - ownership mismatch",
+                        storedIgAccountId);
+                return new InstagramCheckResult(buildOwnershipMismatchResponse(business, storedIgAccountId), "OWNERSHIP_MISMATCH");
+            }
+            return new InstagramCheckResult(buildIgNotLinkedResponse(business, checkedPageIds), "IG_NOT_LINKED_TO_PAGE");
+        }
+
+        return new InstagramCheckResult(); // Success
+    }
+
+    /**
+     * Fetch Instagram username for an account ID.
+     */
+    private String fetchInstagramUsername(String igAccountId, String accessToken) {
+        String url = GRAPH_API_BASE + "/" + igAccountId + "?fields=username&access_token=" + accessToken;
 
         try {
-            ResponseEntity<Map> response = restTemplate.getForEntity(igCheckUrl, Map.class);
+            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
             Map<String, Object> body = response.getBody();
-
-            if (body == null || !body.containsKey("instagram_business_account")) {
-                log.warn("Instagram not linked to Page {}", pageId);
-                return new InstagramCheckResult(buildIgNotLinkedResponse(business));
+            if (body != null) {
+                return (String) body.get("username");
             }
-
-            Map<String, Object> igAccount = (Map<String, Object>) body.get("instagram_business_account");
-            String igId = (String) igAccount.get("id");
-
-            // Verify it matches our stored IG account ID
-            if (business.getInstagramBusinessAccountId() != null &&
-                !business.getInstagramBusinessAccountId().equals(igId)) {
-                log.warn("Instagram account mismatch. Stored: {}, Found: {}",
-                        business.getInstagramBusinessAccountId(), igId);
-                return new InstagramCheckResult(buildOwnershipMismatchResponse(business));
-            }
-
-            return new InstagramCheckResult(); // Success
-
-        } catch (HttpClientErrorException e) {
-            log.error("Error checking Instagram account: {}", e.getMessage());
-            return handleInstagramCheckError(e, business);
-        } catch (RestClientException e) {
-            log.error("Failed to check Instagram account: {}", e.getMessage());
-            return new InstagramCheckResult(buildApiErrorResponse("Failed to verify Instagram account"));
+        } catch (Exception e) {
+            log.warn("[StatusCheck] Failed to fetch username for ig_account_id={}: {}", igAccountId, e.getMessage());
         }
+        return null;
+    }
+
+    /**
+     * Check if an error indicates admin cooldown.
+     */
+    private boolean isAdminCooldownError(HttpClientErrorException e) {
+        String responseBody = e.getResponseBodyAsString();
+        // Meta error subcode 33 = "7 day wait" / admin cooldown
+        return responseBody.contains("\"error_subcode\":33") ||
+               responseBody.toLowerCase().contains("7 day") ||
+               responseBody.toLowerCase().contains("cooldown");
+    }
+
+    /**
+     * Update business with error state.
+     */
+    private void updateBusinessWithError(Business business, String errorReason) {
+        business.setLastConnectionError(errorReason);
+        business.setLastStatusCheckAt(LocalDateTime.now());
+        businessRepository.save(business);
     }
 
     /**
@@ -200,41 +328,29 @@ public class InstagramIntegrationCheckService {
         String message = (String) error.get("message");
         Integer subcode = error.get("error_subcode") != null ? (Integer) error.get("error_subcode") : null;
 
-        log.warn("Facebook API error: code={}, subcode={}, message={}", code, subcode, message);
+        log.warn("[StatusCheck] Facebook API error: code={}, subcode={}, message={}", code, subcode, message);
 
         // Error code 190: Invalid/expired token
         if (code != null && code == 190) {
-            return new PagesCheckResult(buildTokenExpiredResponse());
+            return new PagesCheckResult(buildTokenExpiredResponse(), "TOKEN_EXPIRED");
         }
 
-        // Error code 10: Missing permissions
-        if (code != null && code == 10) {
-            return new PagesCheckResult(buildMissingPermissionsResponse(message));
+        // Error code 10 or 200: Permission error
+        if (code != null && (code == 10 || code == 200)) {
+            return new PagesCheckResult(buildMissingPermissionsResponse(message), "MISSING_PERMISSIONS");
         }
 
-        // Error code 200: Permission error
-        if (code != null && code == 200) {
-            return new PagesCheckResult(buildMissingPermissionsResponse(message));
-        }
-
-        // Default error
-        return new PagesCheckResult(buildApiErrorResponse(message));
+        return new PagesCheckResult(buildApiErrorResponse(message), "API_ERROR");
     }
 
     /**
-     * Handle Instagram check errors, including admin cooldown detection.
+     * Handle HTTP errors from Graph API.
      */
-    private InstagramCheckResult handleInstagramCheckError(HttpClientErrorException e, Business business) {
-        String responseBody = e.getResponseBodyAsString();
-
-        // Check for admin cooldown error (error code 100, subcode 33)
-        // This happens when trying to access IG account within 7 days of becoming admin
-        if (responseBody.contains("33") || responseBody.toLowerCase().contains("cooldown") ||
-            responseBody.toLowerCase().contains("7 day")) {
-            return new InstagramCheckResult(buildAdminCooldownResponse(business));
+    private PagesCheckResult handleHttpError(HttpClientErrorException e) {
+        if (e.getStatusCode().value() == 401) {
+            return new PagesCheckResult(buildTokenExpiredResponse(), "TOKEN_EXPIRED");
         }
-
-        return new InstagramCheckResult(buildApiErrorResponse("Instagram verification failed: " + e.getMessage()));
+        return new PagesCheckResult(buildApiErrorResponse("Facebook API returned " + e.getStatusCode()), "API_ERROR");
     }
 
     // Response builders
@@ -251,14 +367,15 @@ public class InstagramIntegrationCheckService {
         return response;
     }
 
-    private IntegrationStatusResponse buildIgNotLinkedResponse(Business business) {
+    private IntegrationStatusResponse buildIgNotLinkedResponse(Business business, List<String> checkedPageIds) {
         IntegrationStatusResponse response = IntegrationStatusResponse.blocked(
                 Reason.IG_NOT_LINKED_TO_PAGE,
                 "Your Facebook Page is not connected to an Instagram Business account."
         );
         response.setDetails(Map.of(
                 "facebookPageId", business.getFacebookPageId() != null ? business.getFacebookPageId() : "",
-                "businessName", business.getName() != null ? business.getName() : ""
+                "businessName", business.getName() != null ? business.getName() : "",
+                "checkedPageIds", checkedPageIds
         ));
         response.setNextActions(List.of(
                 new NextAction("LINK", "Connect Instagram to Page", "https://www.facebook.com/settings/?tab=linked_instagram"),
@@ -267,15 +384,16 @@ public class InstagramIntegrationCheckService {
         return response;
     }
 
-    private IntegrationStatusResponse buildOwnershipMismatchResponse(Business business) {
+    private IntegrationStatusResponse buildOwnershipMismatchResponse(Business business, String previousIgAccountId) {
         IntegrationStatusResponse response = IntegrationStatusResponse.blocked(
                 Reason.OWNERSHIP_MISMATCH,
-                "The Instagram account is connected via Business Manager but you don't have direct access. " +
-                "Ask the Business Manager admin to grant you access."
+                "The Instagram account was previously connected but is no longer accessible. " +
+                "This may happen if the account is connected via Business Manager and you don't have direct access."
         );
         response.setDetails(Map.of(
                 "instagramUsername", business.getInstagramUsername() != null ? business.getInstagramUsername() : "",
-                "facebookPageId", business.getFacebookPageId() != null ? business.getFacebookPageId() : ""
+                "facebookPageId", business.getFacebookPageId() != null ? business.getFacebookPageId() : "",
+                "previousIgAccountId", previousIgAccountId
         ));
         response.setNextActions(List.of(
                 new NextAction("RECONNECT", "Try reconnecting", null),
@@ -284,21 +402,18 @@ public class InstagramIntegrationCheckService {
         return response;
     }
 
-    private IntegrationStatusResponse buildAdminCooldownResponse(Business business) {
-        // Meta requires a 7-day wait after becoming a Page admin
-        Instant retryAt = Instant.now().plus(7, ChronoUnit.DAYS);
-
+    private IntegrationStatusResponse buildAdminCooldownResponse(Business business, LocalDateTime retryAt) {
         IntegrationStatusResponse response = IntegrationStatusResponse.blocked(
                 Reason.ADMIN_COOLDOWN,
                 "Meta requires a 7-day wait after becoming a Page admin before you can access Instagram messaging."
         );
-        response.setRetryAt(retryAt);
+        response.setRetryAt(retryAt.atZone(ZoneId.systemDefault()).toInstant());
         response.setDetails(Map.of(
                 "facebookPageId", business.getFacebookPageId() != null ? business.getFacebookPageId() : "",
                 "instagramUsername", business.getInstagramUsername() != null ? business.getInstagramUsername() : ""
         ));
         response.setNextActions(List.of(
-                new NextAction("WAIT", "Try again in 7 days", null)
+                new NextAction("WAIT", "Try again on " + retryAt.toLocalDate().toString(), null)
         ));
         return response;
     }
@@ -345,26 +460,30 @@ public class InstagramIntegrationCheckService {
     private static class PagesCheckResult {
         List<Map<String, Object>> pages;
         IntegrationStatusResponse error;
+        String errorReason;
 
         PagesCheckResult(List<Map<String, Object>> pages) {
             this.pages = pages;
         }
 
-        PagesCheckResult(IntegrationStatusResponse error) {
+        PagesCheckResult(IntegrationStatusResponse error, String errorReason) {
             this.error = error;
+            this.errorReason = errorReason;
             this.pages = List.of();
         }
     }
 
     private static class InstagramCheckResult {
         IntegrationStatusResponse error;
+        String errorReason;
 
         InstagramCheckResult() {
             // Success case
         }
 
-        InstagramCheckResult(IntegrationStatusResponse error) {
+        InstagramCheckResult(IntegrationStatusResponse error, String errorReason) {
             this.error = error;
+            this.errorReason = errorReason;
         }
     }
 }

@@ -49,6 +49,7 @@ public class InstagramBusinessService {
 
     /**
      * Fetch Facebook Pages and linked Instagram Business accounts for the user.
+     * Stores connection context in database for later status checks.
      *
      * @param user           The Inboop user who authorized the connection
      * @param facebookUserId The Facebook user ID from OAuth
@@ -59,52 +60,124 @@ public class InstagramBusinessService {
     @Transactional
     public List<Business> connectInstagramAccounts(User user, String facebookUserId,
                                                     String accessToken, Instant tokenExpiresAt) {
-        log.info("Fetching Facebook Pages for user ID: {}, Facebook user ID: {}", user.getId(), facebookUserId);
+        log.info("[OAuth] Starting Instagram connection for user_id={}, facebook_user_id={}",
+                user.getId(), facebookUserId);
 
         List<Business> connectedBusinesses = new ArrayList<>();
+        List<String> allPageIds = new ArrayList<>();
 
         try {
             // Step 1: Fetch Facebook Pages the user manages
             List<FacebookPage> pages = fetchFacebookPages(accessToken);
-            log.info("Found {} Facebook Pages for user", pages.size());
+
+            // Collect all page IDs for connection context
+            for (FacebookPage page : pages) {
+                allPageIds.add(page.id);
+            }
+            String availablePageIds = String.join(",", allPageIds);
+
+            log.info("[OAuth] Found {} Facebook Pages for user_id={}, page_ids={}",
+                    pages.size(), user.getId(), allPageIds);
+
+            if (pages.isEmpty()) {
+                log.warn("[OAuth] No pages found for user_id={}. Check pages_show_list permission.", user.getId());
+                // Store a placeholder business with error context for later status checks
+                storeConnectionErrorContext(user, facebookUserId, accessToken, tokenExpiresAt,
+                        null, "NO_PAGES_FOUND");
+                return connectedBusinesses;
+            }
 
             // Step 2: For each Page, check for linked Instagram Business Account
+            int pagesWithIg = 0;
+            int pagesWithoutIg = 0;
+
             for (FacebookPage page : pages) {
                 try {
+                    log.debug("[OAuth] Checking page_id={} ({}) for Instagram account", page.id, page.name);
                     InstagramAccount igAccount = fetchInstagramBusinessAccount(page.id, accessToken);
 
                     if (igAccount != null) {
-                        // Step 3: Persist the mapping
+                        pagesWithIg++;
+                        // Step 3: Persist the mapping with connection context
                         Business business = findOrCreateBusiness(user, facebookUserId, page, igAccount);
                         business.setAccessToken(accessToken);
                         if (tokenExpiresAt != null) {
                             business.setTokenExpiresAt(LocalDateTime.ofInstant(tokenExpiresAt, ZoneId.systemDefault()));
                         }
                         business.setIsActive(true);
+
+                        // Store connection context
+                        business.setAvailablePageIds(availablePageIds);
+                        business.setSelectedPageId(page.id);
+                        business.setLastIgAccountIdSeen(igAccount.id);
+                        business.setLastConnectionError(null); // Clear any previous error
+                        business.setConnectionRetryAt(null); // Clear any cooldown
+                        business.setLastStatusCheckAt(LocalDateTime.now());
+
                         businessRepository.save(business);
                         connectedBusinesses.add(business);
 
-                        log.info("Connected Instagram Business Account: {} (@{}) for Page: {} ({})",
-                                igAccount.id, igAccount.username, page.name, page.id);
+                        log.info("[OAuth] Connected: ig_account_id={}, ig_username={}, page_id={}, page_name={}",
+                                igAccount.id, igAccount.username, page.id, page.name);
                     } else {
-                        log.debug("Page {} ({}) does not have a linked Instagram Business Account",
-                                page.name, page.id);
+                        pagesWithoutIg++;
+                        log.debug("[OAuth] Page {} ({}) has no linked Instagram Business Account",
+                                page.id, page.name);
                     }
                 } catch (Exception e) {
-                    log.warn("Failed to fetch Instagram account for Page {} ({}): {}",
-                            page.name, page.id, e.getMessage());
+                    log.warn("[OAuth] Failed to fetch Instagram for page_id={}: {}", page.id, e.getMessage());
                 }
             }
 
-            log.info("Successfully connected {} Instagram Business Account(s) for user ID: {}",
-                    connectedBusinesses.size(), user.getId());
+            log.info("[OAuth] Connection complete for user_id={}: pages_with_ig={}, pages_without_ig={}, total_connected={}",
+                    user.getId(), pagesWithIg, pagesWithoutIg, connectedBusinesses.size());
+
+            // If no IG accounts found, store error context
+            if (connectedBusinesses.isEmpty() && !pages.isEmpty()) {
+                log.warn("[OAuth] No Instagram accounts found for user_id={} despite having {} pages",
+                        user.getId(), pages.size());
+                storeConnectionErrorContext(user, facebookUserId, accessToken, tokenExpiresAt,
+                        availablePageIds, "IG_NOT_LINKED_TO_PAGE");
+            }
 
         } catch (Exception e) {
-            log.error("Failed to fetch Facebook Pages: {}", e.getMessage(), e);
+            log.error("[OAuth] Failed to connect Instagram for user_id={}: {}", user.getId(), e.getMessage(), e);
             throw new RuntimeException("Failed to connect Instagram accounts: " + e.getMessage(), e);
         }
 
         return connectedBusinesses;
+    }
+
+    /**
+     * Store connection error context when OAuth succeeds but no IG accounts found.
+     * This allows the status endpoint to provide meaningful feedback.
+     */
+    private void storeConnectionErrorContext(User user, String facebookUserId, String accessToken,
+                                             Instant tokenExpiresAt, String availablePageIds, String errorReason) {
+        // Find or create a placeholder business for this user
+        List<Business> existingBusinesses = businessRepository.findByOwnerId(user.getId());
+        Business business;
+
+        if (existingBusinesses.isEmpty()) {
+            business = new Business();
+            business.setOwner(user);
+            business.setName("Pending Connection");
+        } else {
+            business = existingBusinesses.get(0);
+        }
+
+        business.setFacebookUserId(facebookUserId);
+        business.setAccessToken(accessToken);
+        if (tokenExpiresAt != null) {
+            business.setTokenExpiresAt(LocalDateTime.ofInstant(tokenExpiresAt, ZoneId.systemDefault()));
+        }
+        business.setIsActive(false); // Not active since no IG account linked
+        business.setAvailablePageIds(availablePageIds);
+        business.setLastConnectionError(errorReason);
+        business.setLastStatusCheckAt(LocalDateTime.now());
+
+        businessRepository.save(business);
+        log.info("[OAuth] Stored connection error context: user_id={}, error={}", user.getId(), errorReason);
     }
 
     /**

@@ -43,6 +43,25 @@ public class Business {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    // Connection context fields - stored after OAuth for status checks
+    @Column(name = "available_page_ids", length = 2000)
+    private String availablePageIds; // Comma-separated list of all page IDs user has access to
+
+    @Column(name = "selected_page_id")
+    private String selectedPageId; // The page ID user selected (if multi-page)
+
+    @Column(name = "last_ig_account_id_seen")
+    private String lastIgAccountIdSeen; // Last known IG account ID (for ownership mismatch detection)
+
+    @Column(name = "connection_retry_at")
+    private LocalDateTime connectionRetryAt; // If in cooldown, when to retry
+
+    @Column(name = "last_connection_error")
+    private String lastConnectionError; // Last error reason code
+
+    @Column(name = "last_status_check_at")
+    private LocalDateTime lastStatusCheckAt; // When status was last verified
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -163,5 +182,53 @@ public class Business {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getAvailablePageIds() {
+        return availablePageIds;
+    }
+
+    public void setAvailablePageIds(String availablePageIds) {
+        this.availablePageIds = availablePageIds;
+    }
+
+    public String getSelectedPageId() {
+        return selectedPageId;
+    }
+
+    public void setSelectedPageId(String selectedPageId) {
+        this.selectedPageId = selectedPageId;
+    }
+
+    public String getLastIgAccountIdSeen() {
+        return lastIgAccountIdSeen;
+    }
+
+    public void setLastIgAccountIdSeen(String lastIgAccountIdSeen) {
+        this.lastIgAccountIdSeen = lastIgAccountIdSeen;
+    }
+
+    public LocalDateTime getConnectionRetryAt() {
+        return connectionRetryAt;
+    }
+
+    public void setConnectionRetryAt(LocalDateTime connectionRetryAt) {
+        this.connectionRetryAt = connectionRetryAt;
+    }
+
+    public String getLastConnectionError() {
+        return lastConnectionError;
+    }
+
+    public void setLastConnectionError(String lastConnectionError) {
+        this.lastConnectionError = lastConnectionError;
+    }
+
+    public LocalDateTime getLastStatusCheckAt() {
+        return lastStatusCheckAt;
+    }
+
+    public void setLastStatusCheckAt(LocalDateTime lastStatusCheckAt) {
+        this.lastStatusCheckAt = lastStatusCheckAt;
     }
 }
