@@ -9,7 +9,7 @@ class LeadStatusTest {
     @Test
     void testLeadStatusValues() {
         LeadStatus[] values = LeadStatus.values();
-        assertEquals(7, values.length);
+        assertEquals(8, values.length); // Added CLOSED
     }
 
     @Test
@@ -43,15 +43,21 @@ class LeadStatusTest {
     }
 
     @Test
+    void testClosedStatus() {
+        assertEquals("CLOSED", LeadStatus.CLOSED.name());
+        assertEquals(5, LeadStatus.CLOSED.ordinal());
+    }
+
+    @Test
     void testLostStatus() {
         assertEquals("LOST", LeadStatus.LOST.name());
-        assertEquals(5, LeadStatus.LOST.ordinal());
+        assertEquals(6, LeadStatus.LOST.ordinal()); // Shifted after CLOSED
     }
 
     @Test
     void testSpamStatus() {
         assertEquals("SPAM", LeadStatus.SPAM.name());
-        assertEquals(6, LeadStatus.SPAM.ordinal());
+        assertEquals(7, LeadStatus.SPAM.ordinal()); // Shifted after CLOSED
     }
 
     @Test
@@ -61,6 +67,7 @@ class LeadStatusTest {
         assertEquals(LeadStatus.QUALIFIED, LeadStatus.valueOf("QUALIFIED"));
         assertEquals(LeadStatus.NEGOTIATING, LeadStatus.valueOf("NEGOTIATING"));
         assertEquals(LeadStatus.CONVERTED, LeadStatus.valueOf("CONVERTED"));
+        assertEquals(LeadStatus.CLOSED, LeadStatus.valueOf("CLOSED"));
         assertEquals(LeadStatus.LOST, LeadStatus.valueOf("LOST"));
         assertEquals(LeadStatus.SPAM, LeadStatus.valueOf("SPAM"));
     }

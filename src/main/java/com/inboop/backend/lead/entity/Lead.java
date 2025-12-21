@@ -2,7 +2,9 @@ package com.inboop.backend.lead.entity;
 
 import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.business.entity.Business;
+import com.inboop.backend.contact.entity.Contact;
 import com.inboop.backend.lead.enums.ChannelType;
+import com.inboop.backend.lead.enums.LeadSource;
 import com.inboop.backend.lead.enums.LeadStatus;
 import com.inboop.backend.lead.enums.LeadType;
 import jakarta.persistence.*;
@@ -51,6 +53,21 @@ public class Lead {
     @JoinColumn(name = "assigned_to")
     private User assignedTo;
 
+    // Source tracking (AI or MANUAL)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source")
+    private LeadSource source;
+
+    // Who created this lead
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
+
+    // Optional reference to unified contact profile
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "contact_id")
+    private Contact contact;
+
     @ElementCollection
     @CollectionTable(name = "lead_labels", joinColumns = @JoinColumn(name = "lead_id"))
     @Column(name = "label")
@@ -76,6 +93,12 @@ public class Lead {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
 
     // A lead belongs to one conversation (same customer can have multiple leads over time from same conversation)
     @ManyToOne(fetch = FetchType.LAZY)
@@ -244,5 +267,63 @@ public class Lead {
 
     public void setConversation(Conversation conversation) {
         this.conversation = conversation;
+    }
+
+    public LocalDateTime getArchivedAt() {
+        return archivedAt;
+    }
+
+    public void setArchivedAt(LocalDateTime archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
+    }
+
+    public boolean isArchived() {
+        return archivedAt != null;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
+    public LeadSource getSource() {
+        return source;
+    }
+
+    public void setSource(LeadSource source) {
+        this.source = source;
+    }
+
+    public User getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(User createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public Contact getContact() {
+        return contact;
+    }
+
+    public void setContact(Contact contact) {
+        this.contact = contact;
+    }
+
+    /**
+     * Check if this lead is in a terminal state.
+     * Terminal states: CONVERTED, CLOSED, LOST
+     */
+    public boolean isTerminal() {
+        return status == LeadStatus.CONVERTED ||
+               status == LeadStatus.CLOSED ||
+               status == LeadStatus.LOST;
     }
 }

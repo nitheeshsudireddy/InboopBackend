@@ -1,8 +1,15 @@
 package com.inboop.backend.lead.entity;
 
+import com.inboop.backend.lead.enums.ContentType;
+import com.inboop.backend.lead.enums.MessageDirection;
 import com.inboop.backend.lead.enums.MessageSentiment;
+import com.inboop.backend.lead.enums.SenderType;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @Entity
 @Table(name = "messages")
@@ -24,6 +31,25 @@ public class Message {
 
     @Column(name = "is_from_customer", nullable = false)
     private Boolean isFromCustomer;
+
+    // Direction enum (INBOUND/OUTBOUND)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "direction")
+    private MessageDirection direction;
+
+    // Sender type (CUSTOMER/BUSINESS/SYSTEM)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sender_type")
+    private SenderType senderType;
+
+    // Content type (TEXT/IMAGE/VIDEO/etc.)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "content_type")
+    private ContentType contentType;
+
+    // Generalized channel message ID
+    @Column(name = "channel_message_id")
+    private String channelMessageId;
 
     @Column(name = "original_text", columnDefinition = "TEXT")
     private String originalText;
@@ -55,15 +81,36 @@ public class Message {
     @Column(name = "sent_at", nullable = false)
     private LocalDateTime sentAt;
 
+    // Extensibility
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "metadata", columnDefinition = "jsonb")
+    private Map<String, Object> metadata;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
         if (sentAt == null) {
             sentAt = LocalDateTime.now();
         }
+        // Sync direction and senderType from isFromCustomer if not set
+        if (direction == null && isFromCustomer != null) {
+            direction = isFromCustomer ? MessageDirection.INBOUND : MessageDirection.OUTBOUND;
+        }
+        if (senderType == null && isFromCustomer != null) {
+            senderType = isFromCustomer ? SenderType.CUSTOMER : SenderType.BUSINESS;
+        }
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 
     // Getters and Setters
@@ -193,5 +240,69 @@ public class Message {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    public MessageDirection getDirection() {
+        return direction;
+    }
+
+    public void setDirection(MessageDirection direction) {
+        this.direction = direction;
+    }
+
+    public SenderType getSenderType() {
+        return senderType;
+    }
+
+    public void setSenderType(SenderType senderType) {
+        this.senderType = senderType;
+    }
+
+    public ContentType getContentType() {
+        return contentType;
+    }
+
+    public void setContentType(ContentType contentType) {
+        this.contentType = contentType;
+    }
+
+    public String getChannelMessageId() {
+        return channelMessageId;
+    }
+
+    public void setChannelMessageId(String channelMessageId) {
+        this.channelMessageId = channelMessageId;
+    }
+
+    public Map<String, Object> getMetadata() {
+        return metadata;
+    }
+
+    public void setMetadata(Map<String, Object> metadata) {
+        this.metadata = metadata;
+    }
+
+    /**
+     * Check if this message is from customer (inbound).
+     */
+    public boolean isInbound() {
+        return direction == MessageDirection.INBOUND ||
+               (isFromCustomer != null && isFromCustomer);
+    }
+
+    /**
+     * Check if this message is from business (outbound).
+     */
+    public boolean isOutbound() {
+        return direction == MessageDirection.OUTBOUND ||
+               (isFromCustomer != null && !isFromCustomer);
     }
 }

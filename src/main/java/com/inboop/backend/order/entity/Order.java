@@ -1,11 +1,19 @@
 package com.inboop.backend.order.entity;
 
+import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.business.entity.Business;
+import com.inboop.backend.contact.entity.Contact;
+import com.inboop.backend.lead.entity.Conversation;
 import com.inboop.backend.lead.entity.Lead;
+import com.inboop.backend.lead.enums.ChannelType;
 import com.inboop.backend.order.enums.OrderStatus;
+import com.inboop.backend.order.enums.PaymentMethod;
+import com.inboop.backend.order.enums.PaymentStatus;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "orders")
@@ -26,6 +34,21 @@ public class Order {
     @JoinColumn(name = "lead_id")
     private Lead lead;
 
+    // Direct conversation link
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "conversation_id")
+    private Conversation conversation;
+
+    // Contact reference
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "contact_id")
+    private Contact contact;
+
+    // Team assignment
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_to_user_id")
+    private User assignedTo;
+
     @Column(name = "customer_name")
     private String customerName;
 
@@ -37,10 +60,43 @@ public class Order {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private OrderStatus status = OrderStatus.PENDING;
+    private OrderStatus status = OrderStatus.NEW;
+
+    // Payment tracking (separate from fulfillment)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status")
+    private PaymentStatus paymentStatus = PaymentStatus.UNPAID;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method")
+    private PaymentMethod paymentMethod;
+
+    @Column(name = "paid_at")
+    private LocalDateTime paidAt;
+
+    // Channel denormalized from conversation
+    @Enumerated(EnumType.STRING)
+    @Column(name = "channel")
+    private ChannelType channel;
+
+    // Currency
+    @Column(name = "currency")
+    private String currency = "INR";
+
+    // External system reference
+    @Column(name = "external_order_id")
+    private String externalOrderId;
 
     @Column(precision = 10, scale = 2)
     private BigDecimal totalAmount;
+
+    // Order items
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OrderItem> items = new ArrayList<>();
+
+    // Order timeline/history
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OrderTimeline> timeline = new ArrayList<>();
 
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
@@ -57,11 +113,20 @@ public class Order {
     @Column(name = "delivered_at")
     private LocalDateTime deliveredAt;
 
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
 
     @PrePersist
     protected void onCreate() {
@@ -204,5 +269,150 @@ public class Order {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public LocalDateTime getArchivedAt() {
+        return archivedAt;
+    }
+
+    public void setArchivedAt(LocalDateTime archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
+    }
+
+    public boolean isArchived() {
+        return archivedAt != null;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
+    public Conversation getConversation() {
+        return conversation;
+    }
+
+    public void setConversation(Conversation conversation) {
+        this.conversation = conversation;
+    }
+
+    public Contact getContact() {
+        return contact;
+    }
+
+    public void setContact(Contact contact) {
+        this.contact = contact;
+    }
+
+    public User getAssignedTo() {
+        return assignedTo;
+    }
+
+    public void setAssignedTo(User assignedTo) {
+        this.assignedTo = assignedTo;
+    }
+
+    public PaymentStatus getPaymentStatus() {
+        return paymentStatus;
+    }
+
+    public void setPaymentStatus(PaymentStatus paymentStatus) {
+        this.paymentStatus = paymentStatus;
+    }
+
+    public PaymentMethod getPaymentMethod() {
+        return paymentMethod;
+    }
+
+    public void setPaymentMethod(PaymentMethod paymentMethod) {
+        this.paymentMethod = paymentMethod;
+    }
+
+    public LocalDateTime getPaidAt() {
+        return paidAt;
+    }
+
+    public void setPaidAt(LocalDateTime paidAt) {
+        this.paidAt = paidAt;
+    }
+
+    public ChannelType getChannel() {
+        return channel;
+    }
+
+    public void setChannel(ChannelType channel) {
+        this.channel = channel;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
+    public String getExternalOrderId() {
+        return externalOrderId;
+    }
+
+    public void setExternalOrderId(String externalOrderId) {
+        this.externalOrderId = externalOrderId;
+    }
+
+    public List<OrderItem> getItems() {
+        return items;
+    }
+
+    public void setItems(List<OrderItem> items) {
+        this.items = items;
+    }
+
+    public List<OrderTimeline> getTimeline() {
+        return timeline;
+    }
+
+    public void setTimeline(List<OrderTimeline> timeline) {
+        this.timeline = timeline;
+    }
+
+    public LocalDateTime getCancelledAt() {
+        return cancelledAt;
+    }
+
+    public void setCancelledAt(LocalDateTime cancelledAt) {
+        this.cancelledAt = cancelledAt;
+    }
+
+    // Helper methods
+    public void addItem(OrderItem item) {
+        items.add(item);
+        item.setOrder(this);
+    }
+
+    public void removeItem(OrderItem item) {
+        items.remove(item);
+        item.setOrder(null);
+    }
+
+    public void addTimelineEntry(OrderTimeline entry) {
+        timeline.add(entry);
+        entry.setOrder(this);
+    }
+
+    /**
+     * Check if this order is in a terminal state.
+     * Terminal states: DELIVERED, CANCELLED
+     */
+    public boolean isTerminal() {
+        return status == OrderStatus.DELIVERED ||
+               status == OrderStatus.CANCELLED;
     }
 }
