@@ -160,6 +160,10 @@ public class Order {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    // Tracks if this order converted a lead (set when lead.status was NEW at order creation)
+    @Column(name = "is_converting_order")
+    private Boolean isConvertingOrder = false;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -526,5 +530,13 @@ public class Order {
     public boolean isTerminal() {
         return status == OrderStatus.DELIVERED ||
                status == OrderStatus.CANCELLED;
+    }
+
+    public Boolean getIsConvertingOrder() {
+        return isConvertingOrder;
+    }
+
+    public void setIsConvertingOrder(Boolean isConvertingOrder) {
+        this.isConvertingOrder = isConvertingOrder;
     }
 }

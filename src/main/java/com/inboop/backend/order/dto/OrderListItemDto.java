@@ -29,6 +29,10 @@ public class OrderListItemDto {
     private LocalDateTime createdAt;
     private LocalDateTime lastUpdatedAt;
 
+    // Lead relationship - for identifying primary vs secondary orders
+    private Long leadId;
+    private Boolean isPrimaryConvertingOrder;
+
     public OrderListItemDto() {}
 
     public static OrderListItemDto fromEntity(Order order) {
@@ -49,6 +53,16 @@ public class OrderListItemDto {
         }
         dto.setCreatedAt(order.getCreatedAt());
         dto.setLastUpdatedAt(order.getUpdatedAt());
+
+        // Lead relationship
+        if (order.getLead() != null) {
+            dto.setLeadId(order.getLead().getId());
+            // Compute isPrimaryConvertingOrder dynamically
+            Long leadConvertedOrderId = order.getLead().getConvertedOrderId();
+            dto.setIsPrimaryConvertingOrder(
+                leadConvertedOrderId != null && leadConvertedOrderId.equals(order.getId())
+            );
+        }
         return dto;
     }
 
@@ -163,5 +177,21 @@ public class OrderListItemDto {
 
     public void setLastUpdatedAt(LocalDateTime lastUpdatedAt) {
         this.lastUpdatedAt = lastUpdatedAt;
+    }
+
+    public Long getLeadId() {
+        return leadId;
+    }
+
+    public void setLeadId(Long leadId) {
+        this.leadId = leadId;
+    }
+
+    public Boolean getIsPrimaryConvertingOrder() {
+        return isPrimaryConvertingOrder;
+    }
+
+    public void setIsPrimaryConvertingOrder(Boolean isPrimaryConvertingOrder) {
+        this.isPrimaryConvertingOrder = isPrimaryConvertingOrder;
     }
 }

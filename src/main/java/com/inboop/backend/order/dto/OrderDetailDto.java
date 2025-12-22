@@ -37,6 +37,7 @@ public class OrderDetailDto {
     // Detail-specific fields
     private Long conversationId;
     private Long leadId;
+    private LeadConversionInfoDto leadConversionInfo;
     private List<OrderItemDto> items = new ArrayList<>();
     private ShippingAddressDto shippingAddress;
     private TrackingInfoDto tracking;
@@ -70,6 +71,8 @@ public class OrderDetailDto {
         }
         if (order.getLead() != null) {
             dto.setLeadId(order.getLead().getId());
+            // Build lead conversion info
+            dto.setLeadConversionInfo(LeadConversionInfoDto.fromOrder(order));
         }
         dto.setNotes(order.getNotes());
 
@@ -223,6 +226,14 @@ public class OrderDetailDto {
 
     public void setLeadId(Long leadId) {
         this.leadId = leadId;
+    }
+
+    public LeadConversionInfoDto getLeadConversionInfo() {
+        return leadConversionInfo;
+    }
+
+    public void setLeadConversionInfo(LeadConversionInfoDto leadConversionInfo) {
+        this.leadConversionInfo = leadConversionInfo;
     }
 
     public List<OrderItemDto> getItems() {
@@ -534,6 +545,53 @@ public class OrderDetailDto {
 
         public void setCreatedAt(LocalDateTime createdAt) {
             this.createdAt = createdAt;
+        }
+    }
+
+    /**
+     * Information about lead conversion for this order.
+     */
+    public static class LeadConversionInfoDto {
+        private boolean isConvertingOrder;
+        private boolean isPrimaryConvertingOrder;
+        private Long convertedLeadId;
+
+        public static LeadConversionInfoDto fromOrder(Order order) {
+            LeadConversionInfoDto dto = new LeadConversionInfoDto();
+            dto.setConvertingOrder(Boolean.TRUE.equals(order.getIsConvertingOrder()));
+            if (order.getLead() != null) {
+                dto.setConvertedLeadId(order.getLead().getId());
+                // Compute isPrimaryConvertingOrder dynamically: order.id == lead.convertedOrderId
+                Long leadConvertedOrderId = order.getLead().getConvertedOrderId();
+                dto.setPrimaryConvertingOrder(
+                    leadConvertedOrderId != null && leadConvertedOrderId.equals(order.getId())
+                );
+            }
+            return dto;
+        }
+
+        public boolean isConvertingOrder() {
+            return isConvertingOrder;
+        }
+
+        public void setConvertingOrder(boolean convertingOrder) {
+            isConvertingOrder = convertingOrder;
+        }
+
+        public boolean isPrimaryConvertingOrder() {
+            return isPrimaryConvertingOrder;
+        }
+
+        public void setPrimaryConvertingOrder(boolean primaryConvertingOrder) {
+            isPrimaryConvertingOrder = primaryConvertingOrder;
+        }
+
+        public Long getConvertedLeadId() {
+            return convertedLeadId;
+        }
+
+        public void setConvertedLeadId(Long convertedLeadId) {
+            this.convertedLeadId = convertedLeadId;
         }
     }
 }

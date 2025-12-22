@@ -118,15 +118,19 @@ public class OrderService {
 
         // Handle lead linking
         Lead lead = null;
+        boolean isConvertingOrder = false;
         if (request.getLeadId() != null) {
             lead = leadRepository.findById(request.getLeadId())
                     .orElseThrow(() -> new IllegalArgumentException("Lead not found: " + request.getLeadId()));
             order.setLead(lead);
 
-            // Auto-convert lead if status is NEW
-            if (lead.getStatus() == LeadStatus.NEW) {
+            // Auto-convert lead if status is NEW (only if not already converted)
+            if (lead.getStatus() == LeadStatus.NEW && lead.getConvertedOrderId() == null) {
+                isConvertingOrder = true;
                 lead.setStatus(LeadStatus.CONVERTED);
-                leadRepository.save(lead);
+                lead.setConvertedAt(LocalDateTime.now());
+                order.setIsConvertingOrder(true);
+                // Note: convertedOrderId and convertedOrderNumber will be set after order is saved
             }
         }
 
@@ -159,10 +163,20 @@ public class OrderService {
         }
 
         // Add initial timeline entry
-        addTimelineEntry(order, OrderStatus.NEW, null, "Order created from conversation", performedBy);
+        String timelineNote = isConvertingOrder
+                ? "Order created from lead conversion"
+                : "Order created from conversation";
+        addTimelineEntry(order, OrderStatus.NEW, null, timelineNote, performedBy);
 
         // Save order
         Order savedOrder = orderRepository.save(order);
+
+        // Update lead with order info if this was a converting order
+        if (isConvertingOrder && lead != null) {
+            lead.setConvertedOrderId(savedOrder.getId());
+            lead.setConvertedOrderNumber(savedOrder.getOrderNumber());
+            leadRepository.save(lead);
+        }
 
         // Update conversation order count
         conversation.setOrderCount(conversation.getOrderCount() != null ? conversation.getOrderCount() + 1 : 1);

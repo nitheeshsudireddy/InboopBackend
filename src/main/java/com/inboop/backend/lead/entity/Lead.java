@@ -100,6 +100,16 @@ public class Lead {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    // Conversion tracking
+    @Column(name = "converted_order_id")
+    private Long convertedOrderId;
+
+    @Column(name = "converted_at")
+    private LocalDateTime convertedAt;
+
+    @Column(name = "converted_order_number")
+    private String convertedOrderNumber;
+
     // A lead belongs to one conversation (same customer can have multiple leads over time from same conversation)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "conversation_id")
@@ -325,5 +335,29 @@ public class Lead {
         return status == LeadStatus.CONVERTED ||
                status == LeadStatus.CLOSED ||
                status == LeadStatus.LOST;
+    }
+
+    public Long getConvertedOrderId() {
+        return convertedOrderId;
+    }
+
+    public void setConvertedOrderId(Long convertedOrderId) {
+        this.convertedOrderId = convertedOrderId;
+    }
+
+    public LocalDateTime getConvertedAt() {
+        return convertedAt;
+    }
+
+    public void setConvertedAt(LocalDateTime convertedAt) {
+        this.convertedAt = convertedAt;
+    }
+
+    public String getConvertedOrderNumber() {
+        return convertedOrderNumber;
+    }
+
+    public void setConvertedOrderNumber(String convertedOrderNumber) {
+        this.convertedOrderNumber = convertedOrderNumber;
     }
 }
