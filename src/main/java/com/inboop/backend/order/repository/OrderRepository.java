@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
@@ -15,6 +16,16 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByBusinessId(Long businessId);
 
     List<Order> findByLeadId(Long leadId);
+
+    /**
+     * Find order by idempotency key for duplicate prevention.
+     */
+    Optional<Order> findByIdempotencyKey(String idempotencyKey);
+
+    /**
+     * Count orders for a conversation.
+     */
+    long countByConversationId(Long conversationId);
 
     /**
      * Find all orders for a specific Instagram Business Account.

@@ -73,6 +73,17 @@ public class OrderController {
     }
 
     /**
+     * Create a new order.
+     * POST /api/v1/orders
+     */
+    @PostMapping
+    public ResponseEntity<OrderDetailDto> createOrder(@RequestBody CreateOrderRequest request) {
+        User currentUser = getCurrentUser();
+        OrderDetailDto order = orderService.createOrder(request, currentUser);
+        return ResponseEntity.ok(order);
+    }
+
+    /**
      * Get order detail.
      * GET /api/orders/{orderId}
      */

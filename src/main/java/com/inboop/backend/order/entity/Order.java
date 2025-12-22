@@ -109,6 +109,10 @@ public class Order {
     @Column(name = "external_order_id")
     private String externalOrderId;
 
+    // Idempotency key for duplicate prevention
+    @Column(name = "idempotency_key", unique = true)
+    private String idempotencyKey;
+
     @Column(precision = 10, scale = 2)
     private BigDecimal totalAmount;
 
@@ -465,6 +469,14 @@ public class Order {
 
     public void setExternalOrderId(String externalOrderId) {
         this.externalOrderId = externalOrderId;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public void setIdempotencyKey(String idempotencyKey) {
+        this.idempotencyKey = idempotencyKey;
     }
 
     public List<OrderItem> getItems() {

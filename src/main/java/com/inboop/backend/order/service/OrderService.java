@@ -2,9 +2,15 @@ package com.inboop.backend.order.service;
 
 import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.auth.repository.UserRepository;
+import com.inboop.backend.lead.entity.Conversation;
+import com.inboop.backend.lead.entity.Lead;
 import com.inboop.backend.lead.enums.ChannelType;
+import com.inboop.backend.lead.enums.LeadStatus;
+import com.inboop.backend.lead.repository.ConversationRepository;
+import com.inboop.backend.lead.repository.LeadRepository;
 import com.inboop.backend.order.dto.*;
 import com.inboop.backend.order.entity.Order;
+import com.inboop.backend.order.entity.OrderItem;
 import com.inboop.backend.order.entity.OrderTimeline;
 import com.inboop.backend.order.enums.OrderStatus;
 import com.inboop.backend.order.enums.PaymentMethod;
@@ -16,10 +22,13 @@ import jakarta.persistence.criteria.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -31,12 +40,144 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
+    private final ConversationRepository conversationRepository;
+    private final LeadRepository leadRepository;
     private final EntityManager entityManager;
 
-    public OrderService(OrderRepository orderRepository, UserRepository userRepository, EntityManager entityManager) {
+    public OrderService(
+            OrderRepository orderRepository,
+            UserRepository userRepository,
+            ConversationRepository conversationRepository,
+            LeadRepository leadRepository,
+            EntityManager entityManager
+    ) {
         this.orderRepository = orderRepository;
         this.userRepository = userRepository;
+        this.conversationRepository = conversationRepository;
+        this.leadRepository = leadRepository;
         this.entityManager = entityManager;
+    }
+
+    /**
+     * Create a new order from a conversation.
+     * - Requires conversationId (provides customer info, channel, assignee)
+     * - Optionally links to a lead (auto-converts if NEW)
+     * - Idempotent: returns existing order if idempotencyKey matches
+     */
+    public OrderDetailDto createOrder(CreateOrderRequest request, User performedBy) {
+        // Validate required fields
+        if (request.getConversationId() == null) {
+            throw new IllegalArgumentException("conversationId is required");
+        }
+
+        // Check idempotency - return existing order if key matches
+        if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().isEmpty()) {
+            Optional<Order> existing = orderRepository.findByIdempotencyKey(request.getIdempotencyKey());
+            if (existing.isPresent()) {
+                return OrderDetailDto.fromEntity(existing.get());
+            }
+        }
+
+        // Load conversation
+        Conversation conversation = conversationRepository.findById(request.getConversationId())
+                .orElseThrow(() -> new IllegalArgumentException("Conversation not found: " + request.getConversationId()));
+
+        // Create order
+        Order order = new Order();
+        order.setOrderNumber(generateOrderNumber());
+        order.setBusiness(conversation.getBusiness());
+        order.setConversation(conversation);
+        order.setContact(conversation.getContact());
+        order.setStatus(OrderStatus.NEW);
+        order.setPaymentStatus(PaymentStatus.UNPAID);
+
+        // Denormalize customer info from conversation
+        order.setCustomerName(conversation.getCustomerName());
+        order.setCustomerHandle(conversation.getCustomerHandle());
+        order.setChannel(conversation.getChannel());
+
+        // Set assignee from conversation (if present)
+        if (conversation.getAssignedTo() != null) {
+            order.setAssignedTo(conversation.getAssignedTo());
+        }
+
+        // Set optional fields
+        if (request.getCurrency() != null && !request.getCurrency().isEmpty()) {
+            order.setCurrency(request.getCurrency());
+        }
+        if (request.getNotes() != null) {
+            order.setNotes(request.getNotes());
+        }
+        if (request.getPaymentMethod() != null) {
+            order.setPaymentMethod(request.getPaymentMethod());
+        }
+        if (request.getIdempotencyKey() != null) {
+            order.setIdempotencyKey(request.getIdempotencyKey());
+        }
+
+        // Handle lead linking
+        Lead lead = null;
+        if (request.getLeadId() != null) {
+            lead = leadRepository.findById(request.getLeadId())
+                    .orElseThrow(() -> new IllegalArgumentException("Lead not found: " + request.getLeadId()));
+            order.setLead(lead);
+
+            // Auto-convert lead if status is NEW
+            if (lead.getStatus() == LeadStatus.NEW) {
+                lead.setStatus(LeadStatus.CONVERTED);
+                leadRepository.save(lead);
+            }
+        }
+
+        // Add order items
+        BigDecimal calculatedTotal = BigDecimal.ZERO;
+        if (request.getItems() != null && !request.getItems().isEmpty()) {
+            for (CreateOrderRequest.OrderItemRequest itemReq : request.getItems()) {
+                if (itemReq.getName() == null || itemReq.getName().trim().isEmpty()) {
+                    continue; // Skip items without names
+                }
+
+                OrderItem item = new OrderItem();
+                item.setName(itemReq.getName().trim());
+                item.setQuantity(itemReq.getQuantity() != null ? itemReq.getQuantity() : 1);
+                item.setUnitPrice(itemReq.getUnitPrice() != null ? itemReq.getUnitPrice() : BigDecimal.ZERO);
+                // totalPrice is calculated in @PrePersist
+                order.addItem(item);
+
+                // Calculate total from items
+                BigDecimal lineTotal = item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                calculatedTotal = calculatedTotal.add(lineTotal);
+            }
+        }
+
+        // Set total amount (use provided or calculated)
+        if (request.getTotalAmount() != null) {
+            order.setTotalAmount(request.getTotalAmount());
+        } else {
+            order.setTotalAmount(calculatedTotal);
+        }
+
+        // Add initial timeline entry
+        addTimelineEntry(order, OrderStatus.NEW, null, "Order created from conversation", performedBy);
+
+        // Save order
+        Order savedOrder = orderRepository.save(order);
+
+        // Update conversation order count
+        conversation.setOrderCount(conversation.getOrderCount() != null ? conversation.getOrderCount() + 1 : 1);
+        conversationRepository.save(conversation);
+
+        return OrderDetailDto.fromEntity(savedOrder);
+    }
+
+    /**
+     * Generate unique order number.
+     * Format: ORD-YYYYMMDD-XXXXX (e.g., ORD-20251222-00001)
+     */
+    private String generateOrderNumber() {
+        String datePrefix = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        String randomSuffix = String.format("%05d", (int) (Math.random() * 100000));
+        return "ORD-" + datePrefix + "-" + randomSuffix;
     }
 
     /**
