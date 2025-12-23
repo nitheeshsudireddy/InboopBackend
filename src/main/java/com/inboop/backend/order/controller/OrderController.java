@@ -8,6 +8,7 @@ import com.inboop.backend.order.enums.OrderStatus;
 import com.inboop.backend.order.enums.PaymentMethod;
 import com.inboop.backend.order.enums.PaymentStatus;
 import com.inboop.backend.order.service.OrderService;
+import com.inboop.backend.rbac.RbacService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -18,6 +19,7 @@ import java.time.LocalDate;
 
 /**
  * REST controller for order management.
+ * RBAC enforced: VIEWER can only read, EDITOR/ADMIN can write.
  */
 @RestController
 @RequestMapping("/api/v1/orders")
@@ -25,10 +27,12 @@ public class OrderController {
 
     private final OrderService orderService;
     private final UserRepository userRepository;
+    private final RbacService rbacService;
 
-    public OrderController(OrderService orderService, UserRepository userRepository) {
+    public OrderController(OrderService orderService, UserRepository userRepository, RbacService rbacService) {
         this.orderService = orderService;
         this.userRepository = userRepository;
+        this.rbacService = rbacService;
     }
 
     /**
@@ -75,10 +79,14 @@ public class OrderController {
     /**
      * Create a new order.
      * POST /api/v1/orders
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PostMapping
     public ResponseEntity<OrderDetailDto> createOrder(@RequestBody CreateOrderRequest request) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.createOrder(request, currentUser);
         return ResponseEntity.ok(order);
     }
@@ -96,10 +104,14 @@ public class OrderController {
     /**
      * Confirm an order.
      * POST /api/orders/{orderId}/confirm
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PostMapping("/{orderId}/confirm")
     public ResponseEntity<OrderDetailDto> confirmOrder(@PathVariable Long orderId) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.confirmOrder(orderId, currentUser);
         return ResponseEntity.ok(order);
     }
@@ -107,6 +119,7 @@ public class OrderController {
     /**
      * Ship an order.
      * POST /api/orders/{orderId}/ship
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PostMapping("/{orderId}/ship")
     public ResponseEntity<OrderDetailDto> shipOrder(
@@ -114,6 +127,9 @@ public class OrderController {
             @RequestBody(required = false) OrderActionRequest.ShipOrderRequest request
     ) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.shipOrder(orderId, request, currentUser);
         return ResponseEntity.ok(order);
     }
@@ -121,10 +137,14 @@ public class OrderController {
     /**
      * Mark order as delivered.
      * POST /api/orders/{orderId}/deliver
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PostMapping("/{orderId}/deliver")
     public ResponseEntity<OrderDetailDto> deliverOrder(@PathVariable Long orderId) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.deliverOrder(orderId, currentUser);
         return ResponseEntity.ok(order);
     }
@@ -132,6 +152,7 @@ public class OrderController {
     /**
      * Cancel an order.
      * POST /api/orders/{orderId}/cancel
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PostMapping("/{orderId}/cancel")
     public ResponseEntity<OrderDetailDto> cancelOrder(
@@ -139,6 +160,9 @@ public class OrderController {
             @RequestBody(required = false) OrderActionRequest.CancelOrderRequest request
     ) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.cancelOrder(orderId, request, currentUser);
         return ResponseEntity.ok(order);
     }
@@ -146,6 +170,7 @@ public class OrderController {
     /**
      * Refund an order.
      * POST /api/orders/{orderId}/refund
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PostMapping("/{orderId}/refund")
     public ResponseEntity<OrderDetailDto> refundOrder(
@@ -153,6 +178,9 @@ public class OrderController {
             @RequestBody(required = false) OrderActionRequest.RefundOrderRequest request
     ) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.refundOrder(orderId, request, currentUser);
         return ResponseEntity.ok(order);
     }
@@ -160,6 +188,7 @@ public class OrderController {
     /**
      * Update payment status.
      * PATCH /api/orders/{orderId}/payment-status
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PatchMapping("/{orderId}/payment-status")
     public ResponseEntity<OrderDetailDto> updatePaymentStatus(
@@ -167,6 +196,9 @@ public class OrderController {
             @RequestBody OrderActionRequest.UpdatePaymentStatusRequest request
     ) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.updatePaymentStatus(orderId, request.getPaymentStatus(), currentUser);
         return ResponseEntity.ok(order);
     }
@@ -174,6 +206,7 @@ public class OrderController {
     /**
      * Assign order to a user.
      * PATCH /api/orders/{orderId}/assign
+     * Requires ORDER_ASSIGN permission (EDITOR or ADMIN).
      */
     @PatchMapping("/{orderId}/assign")
     public ResponseEntity<OrderDetailDto> assignOrder(
@@ -181,6 +214,9 @@ public class OrderController {
             @RequestBody OrderActionRequest.AssignOrderRequest request
     ) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanAssignOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.assignOrder(orderId, request.getAssignedToUserId(), currentUser);
         return ResponseEntity.ok(order);
     }
@@ -188,6 +224,7 @@ public class OrderController {
     /**
      * Update order items.
      * PATCH /api/v1/orders/{orderId}/items
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PatchMapping("/{orderId}/items")
     public ResponseEntity<OrderDetailDto> updateOrderItems(
@@ -195,6 +232,9 @@ public class OrderController {
             @RequestBody OrderActionRequest.UpdateItemsRequest request
     ) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.updateOrderItems(orderId, request, currentUser);
         return ResponseEntity.ok(order);
     }
@@ -202,6 +242,7 @@ public class OrderController {
     /**
      * Update shipping details.
      * PATCH /api/v1/orders/{orderId}/shipping
+     * Requires ORDER_WRITE permission (EDITOR or ADMIN).
      */
     @PatchMapping("/{orderId}/shipping")
     public ResponseEntity<OrderDetailDto> updateOrderShipping(
@@ -209,6 +250,9 @@ public class OrderController {
             @RequestBody OrderActionRequest.UpdateShippingRequest request
     ) {
         User currentUser = getCurrentUser();
+        Long workspaceId = rbacService.getUserWorkspaceId(currentUser);
+        rbacService.assertCanWriteOrder(currentUser, workspaceId);
+
         OrderDetailDto order = orderService.updateOrderShipping(orderId, request, currentUser);
         return ResponseEntity.ok(order);
     }

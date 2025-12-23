@@ -2,10 +2,14 @@ package com.inboop.backend.workspace.service;
 
 import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.auth.repository.UserRepository;
+import com.inboop.backend.plan.enums.Plan;
+import com.inboop.backend.plan.exception.PlanLimitException;
+import com.inboop.backend.plan.service.PlanService;
+import com.inboop.backend.rbac.RbacException;
+import com.inboop.backend.rbac.RbacService;
 import com.inboop.backend.workspace.dto.InviteUserRequest;
 import com.inboop.backend.workspace.dto.UpdateMemberRoleRequest;
 import com.inboop.backend.workspace.dto.WorkspaceMemberResponse;
-import com.inboop.backend.workspace.dto.WorkspaceResponse;
 import com.inboop.backend.workspace.entity.Workspace;
 import com.inboop.backend.workspace.entity.WorkspaceMember;
 import com.inboop.backend.workspace.enums.PlanType;
@@ -41,11 +45,18 @@ class WorkspaceServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private PlanService planService;
+
+    @Mock
+    private RbacService rbacService;
+
     @InjectMocks
     private WorkspaceService workspaceService;
 
     private User adminUser;
     private User memberUser;
+    private User viewerUser;
     private User newUser;
     private Workspace workspace;
 
@@ -58,8 +69,13 @@ class WorkspaceServiceTest {
 
         memberUser = new User();
         memberUser.setId(2L);
-        memberUser.setName("Member User");
-        memberUser.setEmail("member@example.com");
+        memberUser.setName("Editor User");
+        memberUser.setEmail("editor@example.com");
+
+        viewerUser = new User();
+        viewerUser.setId(4L);
+        viewerUser.setName("Viewer User");
+        viewerUser.setEmail("viewer@example.com");
 
         newUser = new User();
         newUser.setId(3L);
@@ -82,43 +98,67 @@ class WorkspaceServiceTest {
         void shouldRejectInviteWhenPlanLimitReached() {
             // Given: Workspace has 5 members (Pro limit)
             when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
-            when(memberRepository.isUserAdminInWorkspace(1L, adminUser.getId())).thenReturn(true);
-            when(memberRepository.countByWorkspaceId(1L)).thenReturn(5L); // At limit
+            doNothing().when(rbacService).assertCanManageTeam(adminUser, 1L);
+            doThrow(PlanLimitException.userLimitReached(Plan.PRO, 5))
+                .when(planService).assertCanInviteUser(1L);
 
-            InviteUserRequest request = new InviteUserRequest("new@example.com", WorkspaceRole.MEMBER);
+            InviteUserRequest request = new InviteUserRequest("new@example.com", WorkspaceRole.EDITOR);
 
             // When/Then
-            WorkspaceException exception = assertThrows(
-                WorkspaceException.class,
+            PlanLimitException exception = assertThrows(
+                PlanLimitException.class,
                 () -> workspaceService.inviteUser(1L, request, adminUser)
             );
 
-            assertEquals("PLAN_USER_LIMIT_REACHED", exception.getCode());
-            assertEquals("Pro plan supports up to 5 users. Upgrade to add more users.", exception.getMessage());
-            assertEquals(HttpStatus.CONFLICT, exception.getStatus());
+            assertEquals("PLAN_LIMIT_REACHED", exception.getCode());
+            assertTrue(exception.getMessage().contains("5 users"));
+            assertEquals(HttpStatus.PAYMENT_REQUIRED, exception.getStatus());
+            assertTrue(exception.isUpgradeSuggested());
 
             // Verify no member was saved
             verify(memberRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("Should reject invite when non-admin tries to invite")
+        @DisplayName("Should reject invite when non-admin tries to invite (RBAC)")
         void shouldRejectInviteFromNonAdmin() {
-            // Given: Non-admin user tries to invite
+            // Given: Non-admin user (Editor) tries to invite
             when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
-            when(memberRepository.isUserAdminInWorkspace(1L, memberUser.getId())).thenReturn(false);
+            doThrow(RbacException.teamManageRequired())
+                .when(rbacService).assertCanManageTeam(memberUser, 1L);
 
-            InviteUserRequest request = new InviteUserRequest("new@example.com", WorkspaceRole.MEMBER);
+            InviteUserRequest request = new InviteUserRequest("new@example.com", WorkspaceRole.EDITOR);
 
             // When/Then
-            WorkspaceException exception = assertThrows(
-                WorkspaceException.class,
+            RbacException exception = assertThrows(
+                RbacException.class,
                 () -> workspaceService.inviteUser(1L, request, memberUser)
             );
 
-            assertEquals("ADMIN_REQUIRED", exception.getCode());
-            assertEquals("Only admins can invite users to the workspace.", exception.getMessage());
-            assertEquals(HttpStatus.FORBIDDEN, exception.getStatus());
+            assertEquals("FORBIDDEN", exception.getCode());
+            assertTrue(exception.getMessage().contains("Only admins can manage team members"));
+
+            // Verify no member was saved
+            verify(memberRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should reject invite when viewer tries to invite (RBAC)")
+        void shouldRejectInviteFromViewer() {
+            // Given: Viewer user tries to invite
+            when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
+            doThrow(RbacException.teamManageRequired())
+                .when(rbacService).assertCanManageTeam(viewerUser, 1L);
+
+            InviteUserRequest request = new InviteUserRequest("new@example.com", WorkspaceRole.VIEWER);
+
+            // When/Then
+            RbacException exception = assertThrows(
+                RbacException.class,
+                () -> workspaceService.inviteUser(1L, request, viewerUser)
+            );
+
+            assertEquals("FORBIDDEN", exception.getCode());
 
             // Verify no member was saved
             verify(memberRepository, never()).save(any());
@@ -129,8 +169,8 @@ class WorkspaceServiceTest {
         void shouldAllowInviteWhenAdminAndUnderLimit() {
             // Given: Admin inviting, under limit
             when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
-            when(memberRepository.isUserAdminInWorkspace(1L, adminUser.getId())).thenReturn(true);
-            when(memberRepository.countByWorkspaceId(1L)).thenReturn(3L); // Under limit
+            doNothing().when(rbacService).assertCanManageTeam(adminUser, 1L);
+            doNothing().when(planService).assertCanInviteUser(1L); // Under limit
             when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.of(newUser));
             when(memberRepository.existsByWorkspaceIdAndUserId(1L, newUser.getId())).thenReturn(false);
             when(memberRepository.save(any(WorkspaceMember.class))).thenAnswer(invocation -> {
@@ -139,7 +179,7 @@ class WorkspaceServiceTest {
                 return m;
             });
 
-            InviteUserRequest request = new InviteUserRequest("new@example.com", WorkspaceRole.MEMBER);
+            InviteUserRequest request = new InviteUserRequest("new@example.com", WorkspaceRole.EDITOR);
 
             // When
             WorkspaceMemberResponse response = workspaceService.inviteUser(1L, request, adminUser);
@@ -147,7 +187,7 @@ class WorkspaceServiceTest {
             // Then
             assertNotNull(response);
             assertEquals("new@example.com", response.getUserEmail());
-            assertEquals(WorkspaceRole.MEMBER, response.getRole());
+            assertEquals(WorkspaceRole.EDITOR, response.getRole());
             verify(memberRepository).save(any(WorkspaceMember.class));
         }
     }
@@ -167,11 +207,11 @@ class WorkspaceServiceTest {
             adminMember.setRole(WorkspaceRole.ADMIN);
 
             when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
-            when(memberRepository.isUserAdminInWorkspace(1L, adminUser.getId())).thenReturn(true);
+            doNothing().when(rbacService).assertCanManageTeam(adminUser, 1L);
             when(memberRepository.findById(10L)).thenReturn(Optional.of(adminMember));
             when(memberRepository.countByWorkspaceIdAndRole(1L, WorkspaceRole.ADMIN)).thenReturn(1L); // Only 1 admin
 
-            UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(WorkspaceRole.MEMBER);
+            UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(WorkspaceRole.EDITOR);
 
             // When/Then
             WorkspaceException exception = assertThrows(
@@ -188,6 +228,33 @@ class WorkspaceServiceTest {
         }
 
         @Test
+        @DisplayName("Should prevent demoting last admin to viewer")
+        void shouldPreventDemotingLastAdminToViewer() {
+            // Given: Admin member to demote to Viewer, and they're the only admin
+            WorkspaceMember adminMember = new WorkspaceMember();
+            adminMember.setId(10L);
+            adminMember.setWorkspace(workspace);
+            adminMember.setUser(adminUser);
+            adminMember.setRole(WorkspaceRole.ADMIN);
+
+            when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
+            doNothing().when(rbacService).assertCanManageTeam(adminUser, 1L);
+            when(memberRepository.findById(10L)).thenReturn(Optional.of(adminMember));
+            when(memberRepository.countByWorkspaceIdAndRole(1L, WorkspaceRole.ADMIN)).thenReturn(1L);
+
+            UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(WorkspaceRole.VIEWER);
+
+            // When/Then
+            WorkspaceException exception = assertThrows(
+                WorkspaceException.class,
+                () -> workspaceService.updateMemberRole(1L, 10L, request, adminUser)
+            );
+
+            assertEquals("MUST_HAVE_ADMIN", exception.getCode());
+            verify(memberRepository, never()).save(any());
+        }
+
+        @Test
         @DisplayName("Should allow demoting admin when multiple admins exist")
         void shouldAllowDemotingWhenMultipleAdmins() {
             // Given: Admin member to demote, but there are 2 admins
@@ -198,19 +265,39 @@ class WorkspaceServiceTest {
             adminMember.setRole(WorkspaceRole.ADMIN);
 
             when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
-            when(memberRepository.isUserAdminInWorkspace(1L, adminUser.getId())).thenReturn(true);
+            doNothing().when(rbacService).assertCanManageTeam(adminUser, 1L);
             when(memberRepository.findById(10L)).thenReturn(Optional.of(adminMember));
             when(memberRepository.countByWorkspaceIdAndRole(1L, WorkspaceRole.ADMIN)).thenReturn(2L); // 2 admins
             when(memberRepository.save(any(WorkspaceMember.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-            UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(WorkspaceRole.MEMBER);
+            UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(WorkspaceRole.EDITOR);
 
             // When
             WorkspaceMemberResponse response = workspaceService.updateMemberRole(1L, 10L, request, adminUser);
 
             // Then
-            assertEquals(WorkspaceRole.MEMBER, response.getRole());
+            assertEquals(WorkspaceRole.EDITOR, response.getRole());
             verify(memberRepository).save(adminMember);
+        }
+
+        @Test
+        @DisplayName("Should reject role change by non-admin (RBAC)")
+        void shouldRejectRoleChangeByNonAdmin() {
+            // Given: Editor trying to change roles
+            when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
+            doThrow(RbacException.teamManageRequired())
+                .when(rbacService).assertCanManageTeam(memberUser, 1L);
+
+            UpdateMemberRoleRequest request = new UpdateMemberRoleRequest(WorkspaceRole.VIEWER);
+
+            // When/Then
+            RbacException exception = assertThrows(
+                RbacException.class,
+                () -> workspaceService.updateMemberRole(1L, 10L, request, memberUser)
+            );
+
+            assertEquals("FORBIDDEN", exception.getCode());
+            verify(memberRepository, never()).save(any());
         }
     }
 
@@ -230,7 +317,7 @@ class WorkspaceServiceTest {
 
             when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
             when(memberRepository.findById(10L)).thenReturn(Optional.of(adminMember));
-            when(memberRepository.isUserAdminInWorkspace(1L, adminUser.getId())).thenReturn(true);
+            when(rbacService.isAdmin(adminUser, 1L)).thenReturn(true);
             when(memberRepository.countByWorkspaceIdAndRole(1L, WorkspaceRole.ADMIN)).thenReturn(1L);
 
             // When/Then
@@ -246,16 +333,16 @@ class WorkspaceServiceTest {
         @Test
         @DisplayName("Should reject removal by non-admin (unless removing self)")
         void shouldRejectRemovalByNonAdmin() {
-            // Given: Member trying to remove another member
+            // Given: Editor trying to remove another member
             WorkspaceMember targetMember = new WorkspaceMember();
             targetMember.setId(10L);
             targetMember.setWorkspace(workspace);
             targetMember.setUser(newUser);
-            targetMember.setRole(WorkspaceRole.MEMBER);
+            targetMember.setRole(WorkspaceRole.EDITOR);
 
             when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
             when(memberRepository.findById(10L)).thenReturn(Optional.of(targetMember));
-            when(memberRepository.isUserAdminInWorkspace(1L, memberUser.getId())).thenReturn(false);
+            when(rbacService.isAdmin(memberUser, 1L)).thenReturn(false);
 
             // When/Then
             WorkspaceException exception = assertThrows(
@@ -265,6 +352,50 @@ class WorkspaceServiceTest {
 
             assertEquals("ADMIN_REQUIRED", exception.getCode());
             verify(memberRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("Should reject removal by viewer (unless removing self)")
+        void shouldRejectRemovalByViewer() {
+            // Given: Viewer trying to remove another member
+            WorkspaceMember targetMember = new WorkspaceMember();
+            targetMember.setId(10L);
+            targetMember.setWorkspace(workspace);
+            targetMember.setUser(newUser);
+            targetMember.setRole(WorkspaceRole.EDITOR);
+
+            when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
+            when(memberRepository.findById(10L)).thenReturn(Optional.of(targetMember));
+            when(rbacService.isAdmin(viewerUser, 1L)).thenReturn(false);
+
+            // When/Then
+            WorkspaceException exception = assertThrows(
+                WorkspaceException.class,
+                () -> workspaceService.removeMember(1L, 10L, viewerUser)
+            );
+
+            assertEquals("ADMIN_REQUIRED", exception.getCode());
+            verify(memberRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("Should allow user to remove themselves")
+        void shouldAllowUserToRemoveSelf() {
+            // Given: Editor removing themselves
+            WorkspaceMember selfMember = new WorkspaceMember();
+            selfMember.setId(10L);
+            selfMember.setWorkspace(workspace);
+            selfMember.setUser(memberUser);
+            selfMember.setRole(WorkspaceRole.EDITOR);
+
+            when(workspaceRepository.findActiveById(1L)).thenReturn(Optional.of(workspace));
+            when(memberRepository.findById(10L)).thenReturn(Optional.of(selfMember));
+            when(rbacService.isAdmin(memberUser, 1L)).thenReturn(false);
+            doNothing().when(memberRepository).delete(selfMember);
+
+            // When/Then - Should not throw
+            assertDoesNotThrow(() -> workspaceService.removeMember(1L, 10L, memberUser));
+            verify(memberRepository).delete(selfMember);
         }
     }
 }

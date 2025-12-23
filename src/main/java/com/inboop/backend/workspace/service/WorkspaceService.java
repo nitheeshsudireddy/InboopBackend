@@ -2,6 +2,8 @@ package com.inboop.backend.workspace.service;
 
 import com.inboop.backend.auth.entity.User;
 import com.inboop.backend.auth.repository.UserRepository;
+import com.inboop.backend.plan.service.PlanService;
+import com.inboop.backend.rbac.RbacService;
 import com.inboop.backend.workspace.dto.*;
 import com.inboop.backend.workspace.entity.Workspace;
 import com.inboop.backend.workspace.entity.WorkspaceMember;
@@ -19,6 +21,7 @@ import java.util.stream.Collectors;
 
 /**
  * Service for workspace management with plan constraints.
+ * Uses RbacService for permission checks (TEAM_MANAGE permission).
  */
 @Service
 @Transactional
@@ -27,14 +30,20 @@ public class WorkspaceService {
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository memberRepository;
     private final UserRepository userRepository;
+    private final PlanService planService;
+    private final RbacService rbacService;
 
     public WorkspaceService(
             WorkspaceRepository workspaceRepository,
             WorkspaceMemberRepository memberRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            PlanService planService,
+            RbacService rbacService) {
         this.workspaceRepository = workspaceRepository;
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
+        this.planService = planService;
+        this.rbacService = rbacService;
     }
 
     /**
@@ -84,7 +93,7 @@ public class WorkspaceService {
     /**
      * Invite a user to the workspace.
      * Enforces:
-     * - Admin-only invites
+     * - TEAM_MANAGE permission (admin-only)
      * - Plan user limit (5 for Pro)
      * - No duplicate members
      */
@@ -92,16 +101,11 @@ public class WorkspaceService {
         Workspace workspace = workspaceRepository.findActiveById(workspaceId)
                 .orElseThrow(() -> WorkspaceException.workspaceNotFound(workspaceId));
 
-        // Check if inviter is admin
-        if (!memberRepository.isUserAdminInWorkspace(workspaceId, inviter.getId())) {
-            throw WorkspaceException.adminRequired();
-        }
+        // Check if inviter has TEAM_MANAGE permission (admin only)
+        rbacService.assertCanManageTeam(inviter, workspaceId);
 
-        // Check plan user limit
-        long currentMemberCount = memberRepository.countByWorkspaceId(workspaceId);
-        if (currentMemberCount >= workspace.getMaxUsers()) {
-            throw WorkspaceException.planUserLimitReached();
-        }
+        // Check plan user limit via PlanService
+        planService.assertCanInviteUser(workspaceId);
 
         // Find user by email
         User invitee = userRepository.findByEmail(request.getEmail())
@@ -142,7 +146,7 @@ public class WorkspaceService {
     /**
      * Update a member's role.
      * Enforces:
-     * - Admin-only operation
+     * - TEAM_MANAGE permission (admin-only)
      * - Cannot demote last admin
      */
     public WorkspaceMemberResponse updateMemberRole(
@@ -155,10 +159,8 @@ public class WorkspaceService {
             throw WorkspaceException.workspaceNotFound(workspaceId);
         }
 
-        // Check if requester is admin
-        if (!memberRepository.isUserAdminInWorkspace(workspaceId, requester.getId())) {
-            throw WorkspaceException.adminRequired();
-        }
+        // Check if requester has TEAM_MANAGE permission (admin only)
+        rbacService.assertCanManageTeam(requester, workspaceId);
 
         WorkspaceMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> WorkspaceException.memberNotFound(memberId));
@@ -168,8 +170,8 @@ public class WorkspaceService {
             throw WorkspaceException.memberNotFound(memberId);
         }
 
-        // If demoting from ADMIN to MEMBER, check we're not removing the last admin
-        if (member.getRole() == WorkspaceRole.ADMIN && request.getRole() == WorkspaceRole.MEMBER) {
+        // If demoting from ADMIN to non-ADMIN, check we're not removing the last admin
+        if (member.getRole() == WorkspaceRole.ADMIN && request.getRole() != WorkspaceRole.ADMIN) {
             long adminCount = memberRepository.countByWorkspaceIdAndRole(workspaceId, WorkspaceRole.ADMIN);
             if (adminCount <= 1) {
                 throw WorkspaceException.mustHaveAdmin();
@@ -185,7 +187,7 @@ public class WorkspaceService {
     /**
      * Remove a member from workspace.
      * Enforces:
-     * - Admin-only operation (unless removing self)
+     * - TEAM_MANAGE permission (unless removing self)
      * - Cannot remove last admin
      */
     public void removeMember(Long workspaceId, Long memberId, User requester) {
@@ -201,11 +203,11 @@ public class WorkspaceService {
             throw WorkspaceException.memberNotFound(memberId);
         }
 
-        // Check permissions: must be admin OR removing self
-        boolean isAdmin = memberRepository.isUserAdminInWorkspace(workspaceId, requester.getId());
+        // Check permissions: must have TEAM_MANAGE permission OR removing self
+        boolean hasTeamManage = rbacService.isAdmin(requester, workspaceId);
         boolean isRemovingSelf = member.getUser().getId().equals(requester.getId());
 
-        if (!isAdmin && !isRemovingSelf) {
+        if (!hasTeamManage && !isRemovingSelf) {
             throw WorkspaceException.adminRequired();
         }
 
@@ -230,13 +232,18 @@ public class WorkspaceService {
 
     /**
      * Check if user can invite more users to workspace.
+     * Delegates to PlanService for plan-based limits.
      */
     @Transactional(readOnly = true)
     public boolean canInviteMore(Long workspaceId) {
-        Workspace workspace = workspaceRepository.findActiveById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.workspaceNotFound(workspaceId));
+        return planService.canInviteUser(workspaceId);
+    }
 
-        long currentMemberCount = memberRepository.countByWorkspaceId(workspaceId);
-        return currentMemberCount < workspace.getMaxUsers();
+    /**
+     * Get seat usage info for the workspace.
+     */
+    @Transactional(readOnly = true)
+    public PlanService.SeatInfo getSeatInfo(Long workspaceId) {
+        return planService.getSeatInfo(workspaceId);
     }
 }
