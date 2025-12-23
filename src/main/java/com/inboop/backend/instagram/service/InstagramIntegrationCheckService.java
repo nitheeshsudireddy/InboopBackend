@@ -190,7 +190,47 @@ public class InstagramIntegrationCheckService {
         if (pagesResult.pages.isEmpty()) {
             updateBusinessWithError(business, "NO_PAGES_FOUND");
             log.info("[StatusCheck] Result: user_id={}, status=BLOCKED, reason=NO_PAGES_FOUND", user.getId());
-            IntegrationStatusResponse response = buildNoPagesResponse();
+
+            IntegrationStatusResponse response;
+            // If we have token debug info, it means permissions are likely missing
+            if (pagesResult.debugInfo != null) {
+                boolean hasPagesShowList = Boolean.TRUE.equals(pagesResult.debugInfo.get("has_pages_show_list"));
+                boolean hasPagesReadEngagement = Boolean.TRUE.equals(pagesResult.debugInfo.get("has_pages_read_engagement"));
+
+                if (!hasPagesShowList && !hasPagesReadEngagement) {
+                    // Missing required permissions - tell user to reconnect
+                    response = IntegrationStatusResponse.blocked(
+                            Reason.MISSING_PERMISSIONS,
+                            "Missing required permissions. Please reconnect and approve all requested permissions."
+                    );
+                    response.setNextActions(List.of(
+                            new NextAction("RECONNECT", "Reconnect Account", null)
+                    ));
+                    // Include debug info in details
+                    response.setDetails(Map.of(
+                            "grantedPermissions", pagesResult.debugInfo.get("permissions"),
+                            "missingPermissions", List.of("pages_show_list", "pages_read_engagement"),
+                            "appId", pagesResult.debugInfo.get("app_id")
+                    ));
+                    // Create synthetic API error for UI display
+                    response.setApiError(new IntegrationStatusResponse.ApiError(
+                            10, null, "OAuthException",
+                            "Token does not have required permissions: pages_show_list, pages_read_engagement. Granted: " + pagesResult.tokenPermissions,
+                            null
+                    ));
+                } else {
+                    // Has permissions but no pages - user genuinely has no pages
+                    response = buildNoPagesResponse();
+                    response.setDetails(Map.of(
+                            "grantedPermissions", pagesResult.debugInfo.get("permissions"),
+                            "appId", pagesResult.debugInfo.get("app_id"),
+                            "note", "Token has page permissions but /me/accounts returned empty. User may not manage any Facebook Pages."
+                    ));
+                }
+            } else {
+                response = buildNoPagesResponse();
+            }
+
             response.setActions(buildActions());
             return response;
         }
@@ -230,6 +270,8 @@ public class InstagramIntegrationCheckService {
     /**
      * Check Facebook Pages accessibility via /me/accounts.
      * Returns pages with their page access tokens for subsequent API calls.
+     *
+     * Also checks token permissions if no pages are found.
      */
     private PagesCheckResult checkFacebookPages(String accessToken) {
         String url = GRAPH_API_BASE + "/me/accounts?fields=id,name,access_token&access_token=" + accessToken;
@@ -240,9 +282,10 @@ public class InstagramIntegrationCheckService {
 
             // Log raw response for debugging (without tokens)
             if (body != null) {
-                log.info("[StatusCheck] /me/accounts response: data_count={}, has_error={}",
+                log.info("[StatusCheck] /me/accounts response: data_count={}, has_error={}, keys={}",
                         body.containsKey("data") ? ((List<?>) body.get("data")).size() : 0,
-                        body.containsKey("error"));
+                        body.containsKey("error"),
+                        body.keySet());
             }
 
             if (body == null) {
@@ -264,6 +307,26 @@ public class InstagramIntegrationCheckService {
             if (data == null) {
                 log.warn("[StatusCheck] No 'data' field in /me/accounts response. Full response keys: {}", body.keySet());
                 return new PagesCheckResult(List.of());
+            }
+
+            // If no pages found, check token permissions to provide better diagnostics
+            if (data.isEmpty()) {
+                log.warn("[StatusCheck] /me/accounts returned empty data array - checking token permissions");
+                TokenPermissionsResult permResult = checkTokenPermissions(accessToken);
+                log.info("[StatusCheck] Token permissions: {}", permResult.permissions);
+                log.info("[StatusCheck] Token app_id: {}, user_id: {}", permResult.appId, permResult.userId);
+
+                // Return empty list but with diagnostic info in result
+                PagesCheckResult result = new PagesCheckResult(List.of());
+                result.tokenPermissions = permResult.permissions;
+                result.debugInfo = Map.of(
+                        "permissions", permResult.permissions != null ? permResult.permissions : List.of(),
+                        "app_id", permResult.appId != null ? permResult.appId : "",
+                        "user_id", permResult.userId != null ? permResult.userId : "",
+                        "has_pages_show_list", permResult.permissions != null && permResult.permissions.contains("pages_show_list"),
+                        "has_pages_read_engagement", permResult.permissions != null && permResult.permissions.contains("pages_read_engagement")
+                );
+                return result;
             }
 
             // Log each page found (without exposing tokens)
@@ -656,12 +719,69 @@ public class InstagramIntegrationCheckService {
         return response;
     }
 
+    /**
+     * Check token permissions via /me/permissions endpoint.
+     * Used for diagnostics when /me/accounts returns empty.
+     */
+    private TokenPermissionsResult checkTokenPermissions(String accessToken) {
+        TokenPermissionsResult result = new TokenPermissionsResult();
+
+        // Check permissions
+        try {
+            String permUrl = GRAPH_API_BASE + "/me/permissions?access_token=" + accessToken;
+            ResponseEntity<Map> permResponse = restTemplate.getForEntity(permUrl, Map.class);
+            Map<String, Object> permBody = permResponse.getBody();
+
+            if (permBody != null && permBody.containsKey("data")) {
+                List<Map<String, Object>> permData = (List<Map<String, Object>>) permBody.get("data");
+                result.permissions = permData.stream()
+                        .filter(p -> "granted".equals(p.get("status")))
+                        .map(p -> (String) p.get("permission"))
+                        .collect(Collectors.toList());
+            }
+        } catch (Exception e) {
+            log.warn("[StatusCheck] Failed to check token permissions: {}", e.getMessage());
+        }
+
+        // Check token debug info
+        try {
+            String debugUrl = GRAPH_API_BASE + "/debug_token?input_token=" + accessToken + "&access_token=" + accessToken;
+            ResponseEntity<Map> debugResponse = restTemplate.getForEntity(debugUrl, Map.class);
+            Map<String, Object> debugBody = debugResponse.getBody();
+
+            if (debugBody != null && debugBody.containsKey("data")) {
+                Map<String, Object> data = (Map<String, Object>) debugBody.get("data");
+                result.appId = data.get("app_id") != null ? data.get("app_id").toString() : null;
+                result.userId = data.get("user_id") != null ? data.get("user_id").toString() : null;
+                result.isValid = Boolean.TRUE.equals(data.get("is_valid"));
+
+                // Log scopes from debug_token as well
+                if (data.containsKey("scopes")) {
+                    log.info("[StatusCheck] Token scopes from debug_token: {}", data.get("scopes"));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[StatusCheck] Failed to debug token: {}", e.getMessage());
+        }
+
+        return result;
+    }
+
     // Helper classes
+
+    private static class TokenPermissionsResult {
+        List<String> permissions;
+        String appId;
+        String userId;
+        boolean isValid;
+    }
 
     private static class PagesCheckResult {
         List<Map<String, Object>> pages;
         IntegrationStatusResponse error;
         String errorReason;
+        List<String> tokenPermissions;
+        Map<String, Object> debugInfo;
 
         PagesCheckResult(List<Map<String, Object>> pages) {
             this.pages = pages;
