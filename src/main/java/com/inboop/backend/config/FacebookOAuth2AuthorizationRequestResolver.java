@@ -68,25 +68,21 @@ public class FacebookOAuth2AuthorizationRequestResolver implements OAuth2Authori
             }
         }
 
-        // DISABLED config_id: Graph API Explorer uses standard OAuth with explicit scopes,
-        // NOT config_id-based Instagram Business Login. Using config_id can override the scopes
-        // defined in application.properties, which is why our scopes weren't being requested.
-        //
-        // To match Graph API Explorer behavior exactly, we now use:
-        // - Standard Facebook OAuth (no config_id)
-        // - Explicit scopes from application.properties
-        // - auth_type=rerequest to re-prompt for declined permissions
+        // Add config_id for Instagram Business Login flow
+        // The config_id defines which permissions are requested via Meta Developer Console
         Map<String, Object> additionalParameters = new HashMap<>(authorizationRequest.getAdditionalParameters());
 
-        // DO NOT add config_id - use standard OAuth with scopes like Graph API Explorer
-        // additionalParameters.put("config_id", facebookConfigId);
+        // Add config_id if configured
+        if (facebookConfigId != null && !facebookConfigId.isEmpty() && !facebookConfigId.equals("placeholder")) {
+            additionalParameters.put("config_id", facebookConfigId);
+        }
 
         // Add auth_type=rerequest to ensure previously declined permissions are re-prompted
         additionalParameters.put("auth_type", AUTH_TYPE_REREQUEST);
 
         // Log what we're doing for debugging
-        System.out.println("[OAuth-Debug] Building authorization request (NO config_id, using scopes): scopes=" +
-                authorizationRequest.getScopes());
+        System.out.println("[OAuth-Debug] Building authorization request: config_id=" + facebookConfigId +
+                ", scopes=" + authorizationRequest.getScopes());
 
         return OAuth2AuthorizationRequest.from(authorizationRequest)
                 .additionalParameters(additionalParameters)

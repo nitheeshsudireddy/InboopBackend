@@ -122,6 +122,9 @@ public class FacebookOAuth2SuccessHandler implements AuthenticationSuccessHandle
             log.info("[OAuth-Token] FRESH TOKEN RECEIVED: user_id={}, fb_user_id={}, token_hash=...{}, issued_at={}, expires_at={}",
                     userId, facebookUserId, tokenHash, issuedAt, expiresAt);
 
+            // Check what permissions the token actually has
+            logTokenPermissions(accessToken, userId);
+
             log.info("Facebook OAuth successful for user ID: {}, Facebook user ID: {}", userId, facebookUserId);
 
             // Fetch Facebook Pages and linked Instagram Business Accounts
@@ -206,5 +209,60 @@ public class FacebookOAuth2SuccessHandler implements AuthenticationSuccessHandle
         String redirectUrl = frontendUrl + "/settings?instagram_error=" +
                 URLEncoder.encode(error, StandardCharsets.UTF_8);
         response.sendRedirect(redirectUrl);
+    }
+
+    /**
+     * Log the actual permissions granted to the token.
+     * This helps diagnose OAuth permission issues.
+     */
+    private void logTokenPermissions(String accessToken, Long userId) {
+        try {
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            String url = "https://graph.facebook.com/v21.0/me/permissions?access_token=" + accessToken;
+
+            org.springframework.http.ResponseEntity<java.util.Map> response =
+                    restTemplate.getForEntity(url, java.util.Map.class);
+            java.util.Map<String, Object> body = response.getBody();
+
+            if (body != null && body.containsKey("data")) {
+                java.util.List<java.util.Map<String, Object>> permissions =
+                        (java.util.List<java.util.Map<String, Object>>) body.get("data");
+
+                java.util.List<String> granted = new java.util.ArrayList<>();
+                java.util.List<String> declined = new java.util.ArrayList<>();
+
+                for (java.util.Map<String, Object> perm : permissions) {
+                    String permission = (String) perm.get("permission");
+                    String status = (String) perm.get("status");
+                    if ("granted".equals(status)) {
+                        granted.add(permission);
+                    } else {
+                        declined.add(permission);
+                    }
+                }
+
+                log.info("[OAuth-Permissions] user_id={}, GRANTED={}", userId, granted);
+                if (!declined.isEmpty()) {
+                    log.warn("[OAuth-Permissions] user_id={}, DECLINED={}", userId, declined);
+                }
+
+                // Check for critical permissions
+                boolean hasPagesShowList = granted.contains("pages_show_list");
+                boolean hasInstagramBasic = granted.contains("instagram_basic");
+                boolean hasBusinessManagement = granted.contains("business_management");
+
+                if (!hasPagesShowList) {
+                    log.error("[OAuth-Permissions] MISSING CRITICAL: pages_show_list - cannot list pages!");
+                }
+                if (!hasInstagramBasic) {
+                    log.error("[OAuth-Permissions] MISSING CRITICAL: instagram_basic - cannot access IG!");
+                }
+                if (!hasBusinessManagement) {
+                    log.warn("[OAuth-Permissions] MISSING: business_management - may not see business portfolio pages");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[OAuth-Permissions] Failed to check token permissions: {}", e.getMessage());
+        }
     }
 }
